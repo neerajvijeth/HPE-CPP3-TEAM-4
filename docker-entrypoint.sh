@@ -8,6 +8,8 @@ ERROR_LOG=${ERROR_LOG:--}
 WORKER_TEMP_DIR=${WORKER_TEMP_DIR:-/dev/shm}
 SECRET_KEY=${SECRET_KEY:-}
 SKIP_DB_PING=${SKIP_DB_PING:-false}
+SKIP_DB_MIGRATION=${SKIP_DB_MIGRATION:-false}
+
 
 # Check that a .ctfd_secret_key file or SECRET_KEY envvar is set
 if [ ! -f .ctfd_secret_key ] && [ -z "$SECRET_KEY" ]; then
@@ -29,7 +31,7 @@ fi
 if [[ "$SKIP_DB_MIGRATION" == "true" ]]; then
     echo "Skipping DB migration"
 else
-    flask --app CTFd db upgrade -d /opt/CTFd/migrations
+    cd /opt && flask db upgrade -d /opt/CTFd/migrations
 fi
 
 # Start CTFd

@@ -17,7 +17,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY . /opt/
 WORKDIR /opt/
 
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir -r ./CTFd/requirements.txt \
     && for d in CTFd/plugins/*; do \
         if [ -f "$d/requirements.txt" ]; then \
             pip install --no-cache-dir -r "$d/requirements.txt";\
@@ -55,7 +55,7 @@ COPY --chown=1001:1001 --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 #  THIS IS KEY
-WORKDIR /opt/CTFd
+WORKDIR /opt
 ENV PYTHONPATH=/opt
 ENV FLASK_APP=CTFd
 
