@@ -1,10 +1,10 @@
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
+from sqlalchemy import text
 from app import db
 from app.models.user import User
 from app.utils.logger import log_event
 from datetime import datetime
-from sqlalchemy import text
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -25,9 +25,8 @@ def login():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
-        # A05: SQL Injection via raw f-string query
-        # Input: admin'-- bypasses password check entirely
         try:
+            # A05: Raw f-string SQL — injectable
             result = db.session.execute(
                 text(f"SELECT * FROM users WHERE username = '{username}'")
             ).fetchone()
@@ -36,14 +35,22 @@ def login():
             return render_template("auth/login.html")
 
         if result is None:
-            # A09: Failed login not logged
             flash("Invalid username or password.", "danger")
             return render_template("auth/login.html")
 
-        user_obj = User.query.filter_by(username=username).first()
+        # Use the ID from the injected query result directly
+        # This means injection bypasses the password check below
+        user_obj = User.query.get(result[0])
 
-        if user_obj is None or not user_obj.check_password(password):
-            # A07: No failed attempt counter, no lockout
+        if user_obj is None:
+            flash("Invalid username or password.", "danger")
+            return render_template("auth/login.html")
+
+        # A05: Only check password if username wasn't injected
+        # If injected, result already returned a row so we skip password check
+        injected = "'" in username or "--" in username
+        if not injected and not user_obj.check_password(password):
+            # A07: No lockout
             flash("Invalid username or password.", "danger")
             return render_template("auth/login.html")
 
@@ -73,9 +80,7 @@ def register():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
 
-        # A07: No password strength check — "1" is a valid password
-        # A07: No email format validation
-
+        # A07: No password strength check
         if User.query.filter_by(username=username).first():
             flash("Username already taken.", "danger")
             return render_template("auth/register.html")
@@ -85,7 +90,7 @@ def register():
             return render_template("auth/register.html")
 
         user = User(username=username, email=email)
-        user.set_password(password)  # A04: stored as MD5
+        user.set_password(password)  # A04: MD5
         db.session.add(user)
         db.session.commit()
 
