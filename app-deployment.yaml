@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: securevault-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: securevault
+  template:
+    metadata:
+      labels:
+        app: securevault
+    spec:
+      serviceAccountName: securevault-sa
+      containers:
+        - name: securevault
+          image: sanudocker11/secure_vault:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: DATABASE_URL
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
