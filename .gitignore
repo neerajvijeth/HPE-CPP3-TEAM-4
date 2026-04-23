@@ -74,3 +74,4 @@ flask_profiler.sql
 
 # OWASP Dependency-Check local scans
 #odc-reports/
+syscallguard_venv/
