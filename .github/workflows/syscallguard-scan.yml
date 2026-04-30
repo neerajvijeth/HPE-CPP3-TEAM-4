@@ -43,6 +43,23 @@ jobs:
             python -m pytest tests/ -v --tb=short 2>&1 || true
           echo "Strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
 
+      # ─── PHASE 2b: Attack simulation injection (DEMO) ───
+      # To trigger: create an empty file called ATTACK_DEMO in repo root
+      # To disable: delete the ATTACK_DEMO file
+      - name: Inject attack simulation (if ATTACK_DEMO trigger exists)
+        run: |
+          if [ -f "ATTACK_DEMO" ]; then
+            echo "🚨 ATTACK_DEMO trigger detected — injecting dangerous syscalls..."
+            sudo strace -f -o /tmp/attack-syscalls.log \
+              python syscallguard/demo/attack_simulation.py 2>&1 || true
+            echo "Attack strace log size: $(wc -l < /tmp/attack-syscalls.log) lines"
+            # Merge attack syscalls into main pytest log
+            cat /tmp/attack-syscalls.log >> /tmp/pytest-syscalls.log
+            echo "Combined strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
+          else
+            echo "✅ No ATTACK_DEMO trigger found — clean run"
+          fi
+
       - name: Generate pytest syscall profile
         run: |
           GIT_SHA=$(git rev-parse --short HEAD)
