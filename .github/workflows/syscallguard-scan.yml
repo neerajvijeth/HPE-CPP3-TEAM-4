@@ -59,10 +59,10 @@ jobs:
             echo "🚨 ATTACK_DEMO trigger detected — injecting dangerous syscalls..."
             sudo strace -f -o /tmp/attack-syscalls.log \
               python syscallguard/demo/attack_simulation.py 2>&1 || true
-            sudo chmod 644 /tmp/attack-syscalls.log 2>/dev/null || true
+            sudo chmod 666 /tmp/attack-syscalls.log 2>/dev/null || true
             echo "Attack strace log size: $(wc -l < /tmp/attack-syscalls.log) lines"
-            # Merge attack syscalls into main pytest log
-            cat /tmp/attack-syscalls.log >> /tmp/pytest-syscalls.log
+            # Merge attack syscalls into main pytest log (needs sudo — strace log is root-owned)
+            sudo bash -c "cat /tmp/attack-syscalls.log >> /tmp/pytest-syscalls.log"
             echo "Combined strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
           else
             echo "✅ No ATTACK_DEMO trigger found — clean run"
