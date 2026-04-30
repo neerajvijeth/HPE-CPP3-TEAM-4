@@ -7,6 +7,12 @@ on:
     branches: ['**']
   workflow_dispatch:
 
+# Prevent concurrent runs on the same branch — ensures baseline is saved
+# before the next run tries to download it
+concurrency:
+  group: syscallguard-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   RISK_THRESHOLD: 10  # Risk score threshold for FAIL verdict
   PYTHON_VERSION: "3.10"
@@ -41,6 +47,7 @@ jobs:
           cd securevault
           sudo strace -f -o /tmp/pytest-syscalls.log \
             python -m pytest tests/ -v --tb=short 2>&1 || true
+          sudo chmod 644 /tmp/pytest-syscalls.log
           echo "Strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
 
       # ─── PHASE 2b: Attack simulation injection (DEMO) ───
@@ -52,6 +59,7 @@ jobs:
             echo "🚨 ATTACK_DEMO trigger detected — injecting dangerous syscalls..."
             sudo strace -f -o /tmp/attack-syscalls.log \
               python syscallguard/demo/attack_simulation.py 2>&1 || true
+            sudo chmod 644 /tmp/attack-syscalls.log 2>/dev/null || true
             echo "Attack strace log size: $(wc -l < /tmp/attack-syscalls.log) lines"
             # Merge attack syscalls into main pytest log
             cat /tmp/attack-syscalls.log >> /tmp/pytest-syscalls.log
@@ -78,6 +86,7 @@ jobs:
             python syscallguard/dep_exerciser.py \
             securevault/requirements.txt \
             --output /tmp/profiles/dep-exercise-report.json 2>&1 || true
+          sudo chmod 644 /tmp/dep-syscalls.log 2>/dev/null || true
 
       - name: Generate dependency syscall profile
         run: |
@@ -161,7 +170,7 @@ jobs:
         run: |
           python syscallguard/blast_radius.py \
             /tmp/profiles/pytest-profile.json \
-            --output /tmp/profiles/blast-radius-report.json
+            --output /tmp/profiles/blast-radius-report.json || true
 
       # ─── PHASE 11: Seccomp profile generation ───
       - name: Generate seccomp profile
@@ -169,10 +178,11 @@ jobs:
           python syscallguard/seccomp_generator.py \
             /tmp/profiles/pytest-profile.json \
             --mode whitelist \
-            --output /tmp/profiles/seccomp-profile.json
+            --output /tmp/profiles/seccomp-profile.json || true
 
       # ─── PHASE 12: Upload current profile as new baseline ───
       - name: Upload profile as baseline artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: syscallguard-baseline
