@@ -1,0 +1,71 @@
+name: SecureVault CI/CD Deployment
+
+on:
+  push:
+    branches:
+      - securevault-cicd-automation
+
+workflow_dispatch:
+
+jobs:
+
+  docker-build-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t sanudocker11/secure_vault:latest .
+
+      - name: Push Docker Image
+        run: |
+          docker push sanudocker11/secure_vault:latest
+
+  deploy-ec2:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+
+          script: |
+            sudo docker pull sanudocker11/secure_vault:latest
+
+            sudo docker stop securevault_app || true
+            sudo docker rm securevault_app || true
+
+            sudo docker stop securevault_db || true
+            sudo docker rm securevault_db || true
+
+            sudo docker network create securevault-net || true
+
+            sudo docker run -d \
+              --name securevault_db \
+              --network securevault-net \
+              -e POSTGRES_DB=securevault \
+              -e POSTGRES_USER=securevault \
+              -e POSTGRES_PASSWORD=securevault \
+              postgres:14
+
+            sleep 10
+
+            sudo docker run -d \
+              --name securevault_app \
+              --network securevault-net \
+              -p 80:8000 \
+              -e DATABASE_URL="postgresql://securevault:securevault@securevault_db:5432/securevault" \
+              sanudocker11/secure_vault:latest
