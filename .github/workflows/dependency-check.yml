@@ -3,9 +3,13 @@ name: OWASP Dependency Check Pipeline
 # This tells GitHub to run the scan every time code is pushed
 on:
   push:
-    branches: [ "main", "devsecops-setup1", "test/dependency-check" ]
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
   pull_request:
-    branches: [ "main", "devsecops-setup1" ]
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
   workflow_dispatch:
 
 jobs:

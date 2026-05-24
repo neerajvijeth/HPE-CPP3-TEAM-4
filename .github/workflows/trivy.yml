@@ -2,9 +2,13 @@ name: Trivy Security Scan
 
 on:
   push:
-    branches: ["devsecops-setup1"]
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
   pull_request:
-    branches: ["devsecops-setup1"]
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
   workflow_dispatch:
 
 jobs:

@@ -2,9 +2,13 @@ name: SecureVault CI/CD Deployment
 
 on:
   push:
-    branches:
-      - securevault-cicd-automation
-
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
+  pull_request:
+    branches: 
+      - devsecops-setup1
+      - securevault-full-orchestration
   workflow_dispatch:
 
 jobs:

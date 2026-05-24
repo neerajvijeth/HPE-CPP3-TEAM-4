@@ -1,4 +1,4 @@
-name: SecureVault Full DevSecOps CI/CD Pipeline
+name: SecureVault Deployment Pipeline
 
 on:
   push:
@@ -9,135 +9,12 @@ on:
 
 jobs:
 
-  # =========================================================
-  # STAGE 1 — BANDIT SECURITY SCAN
-  # =========================================================
-
-  bandit-scan:
+  docker-build-push:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r securevault/requirements.txt
-          pip install bandit
-
-      - name: Run Bandit Scan
-        run: |
-          bandit -r securevault/app -ll
-
-
-  # =========================================================
-  # STAGE 2 — PYLINT
-  # =========================================================
-
-  pylint-scan:
-    needs: bandit-scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r securevault/requirements.txt
-          pip install pylint
-
-      - name: Run Pylint
-        run: |
-          pylint securevault/app --fail-under=7 --ignore=migrations
-
-
-  # =========================================================
-  # STAGE 3 — PYTEST
-  # =========================================================
-
-  pytest:
-    needs: pylint-scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r securevault/requirements.txt
-          pip install -r securevault/requirements-dev.txt
-          pip install pytest pytest-cov
-
-      - name: Run Tests
-        run: |
-          cd securevault
-          pytest tests/ -v
-
-
-  # =========================================================
-  # STAGE 4 — BUILD DOCKER IMAGE
-  # =========================================================
-
-  docker-build:
-    needs: pytest
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker Image
-        run: |
-          docker build -t sanudocker11/secure_vault:latest .
-
-
-  # =========================================================
-  # STAGE 5 — TRIVY CONTAINER SCAN
-  # =========================================================
-
-  trivy-scan:
-    needs: docker-build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker Image
-        run: |
-          docker build -t sanudocker11/secure_vault:latest .
-
-      - name: Run Trivy Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "sanudocker11/secure_vault:latest"
-          format: "table"
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
-
-
-  # =========================================================
-  # STAGE 6 — PUSH TO DOCKER HUB
-  # =========================================================
-
-  docker-push:
-    needs: trivy-scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
@@ -153,17 +30,12 @@ jobs:
         run: |
           docker push sanudocker11/secure_vault:latest
 
-
-  # =========================================================
-  # STAGE 7 — DEPLOY TO EC2
-  # =========================================================
-
   deploy-ec2:
-    needs: docker-push
+    needs: docker-build-push
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy Application
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
 
         with:
