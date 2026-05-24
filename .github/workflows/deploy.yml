@@ -46,20 +46,21 @@ jobs:
             sudo docker pull sanudocker11/secure_vault:latest
 
             sudo docker stop securevault_app || true
-            sudo docker rm securevault_app || true
-
-            sudo docker stop securevault_db || true
-            sudo docker rm securevault_db || true
+            sudo docker rm securevault_app || true        
+            
 
             sudo docker network create securevault-net || true
+
+            sudo docker volume create securevault_data || true
 
             sudo docker run -d \
               --name securevault_db \
               --network securevault-net \
+              -v securevault_data:/var/lib/postgresql/data \
               -e POSTGRES_DB=securevault \
               -e POSTGRES_USER=securevault \
               -e POSTGRES_PASSWORD=securevault \
-              postgres:14
+              postgres:14 || true
 
             sleep 10
 
@@ -69,3 +70,7 @@ jobs:
               -p 80:8000 \
               -e DATABASE_URL="postgresql://securevault:securevault@securevault_db:5432/securevault" \
               sanudocker11/secure_vault:latest
+
+            sleep 15
+
+            sudo docker exec securevault_app bash -c "cd securevault && flask db upgrade"
