@@ -1,0 +1,206 @@
+name: SecureVault Full DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - securevault-full-orchestration
+
+  workflow_dispatch:
+
+jobs:
+
+  # =========================================================
+  # STAGE 1 — BANDIT SECURITY SCAN
+  # =========================================================
+
+  bandit-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r securevault/requirements.txt
+          pip install bandit
+
+      - name: Run Bandit Scan
+        run: |
+          bandit -r securevault/app -ll
+
+
+  # =========================================================
+  # STAGE 2 — PYLINT
+  # =========================================================
+
+  pylint-scan:
+    needs: bandit-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r securevault/requirements.txt
+          pip install pylint
+
+      - name: Run Pylint
+        run: |
+          pylint securevault/app --fail-under=7 --ignore=migrations
+
+
+  # =========================================================
+  # STAGE 3 — PYTEST
+  # =========================================================
+
+  pytest:
+    needs: pylint-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r securevault/requirements.txt
+          pip install -r securevault/requirements-dev.txt
+          pip install pytest pytest-cov
+
+      - name: Run Tests
+        run: |
+          cd securevault
+          pytest tests/ -v
+
+
+  # =========================================================
+  # STAGE 4 — BUILD DOCKER IMAGE
+  # =========================================================
+
+  docker-build:
+    needs: pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t sanudocker11/secure_vault:latest .
+
+
+  # =========================================================
+  # STAGE 5 — TRIVY CONTAINER SCAN
+  # =========================================================
+
+  trivy-scan:
+    needs: docker-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t sanudocker11/secure_vault:latest .
+
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "sanudocker11/secure_vault:latest"
+          format: "table"
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+
+  # =========================================================
+  # STAGE 6 — PUSH TO DOCKER HUB
+  # =========================================================
+
+  docker-push:
+    needs: trivy-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t sanudocker11/secure_vault:latest .
+
+      - name: Push Docker Image
+        run: |
+          docker push sanudocker11/secure_vault:latest
+
+
+  # =========================================================
+  # STAGE 7 — DEPLOY TO EC2
+  # =========================================================
+
+  deploy-ec2:
+    needs: docker-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy Application
+        uses: appleboy/ssh-action@v1.0.3
+
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+
+          script: |
+
+            sudo docker pull sanudocker11/secure_vault:latest
+
+            sudo docker stop securevault_app || true
+            sudo docker rm securevault_app || true
+
+            sudo docker network create securevault-net || true
+
+            sudo docker volume create securevault_data || true
+
+            sudo docker start securevault_db || \
+            sudo docker run -d \
+              --name securevault_db \
+              --network securevault-net \
+              -v securevault_data:/var/lib/postgresql/data \
+              -e POSTGRES_DB=securevault \
+              -e POSTGRES_USER=securevault \
+              -e POSTGRES_PASSWORD=securevault \
+              postgres:14
+
+            sleep 10
+
+            sudo docker run -d \
+              --name securevault_app \
+              --network securevault-net \
+              -p 80:8000 \
+              -e DATABASE_URL="postgresql://securevault:securevault@securevault_db:5432/securevault" \
+              sanudocker11/secure_vault:latest
+
+            sleep 15
+
+            sudo docker exec securevault_app bash -c "cd /opt/securevault && flask db upgrade"
