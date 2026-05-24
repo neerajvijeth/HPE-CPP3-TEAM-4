@@ -5,7 +5,7 @@ on:
     branches:
       - securevault-cicd-automation
 
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
 
