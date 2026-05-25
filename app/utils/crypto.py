@@ -9,7 +9,7 @@ def _get_key() -> bytes:
     Key must be 32 bytes (256 bits), stored as base64 in env.
     """
     raw = os.environ.get("VAULT_ENCRYPTION_KEY", "")
-    key_bytes = base64.b64decode(raw)
+    key_bytes = base64.urlsafe_b64decode(raw)
     if len(key_bytes) != 32:
         raise ValueError("VAULT_ENCRYPTION_KEY must be 32 bytes (256-bit) base64 encoded.")
     return key_bytes
