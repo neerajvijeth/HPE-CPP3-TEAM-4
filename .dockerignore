@@ -1,5 +1,5 @@
-securevault/app/static/uploads/*
-!securevault/app/static/uploads/.gitkeep
+app/static/uploads/*
+!app/static/uploads/.gitkeep
 *.db
 *.sqlite
 .git
