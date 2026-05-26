@@ -23,7 +23,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
           output: 'trivy-results.txt'
           # Uncomment the line below to fail the build if CRITICAL/HIGH vulnerabilities are found
-          # exit-code: '1'
+          exit-code: '1'
       - name: Generate Security Dashboard Summary
         if: always()
         run: |
