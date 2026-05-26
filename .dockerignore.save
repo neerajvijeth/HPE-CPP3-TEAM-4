@@ -10,7 +10,4 @@ securevault/app/static/uploads/*
 **/*.pyc
 **/__pycache__
 .venv*
-venv*
-migrations/__pycache__/
-.idea/
-.vscode/
+venv

@@ -1,12 +1,10 @@
 name: Pylint Scan
-
 on:
   push:
-    branches: ["devsecops-setup1"]
+    branches: ['securevault-fixed']
   pull_request:
-    branches: ["devsecops-setup1"]
+    branches: ['securevault-fixed']
   workflow_dispatch:
-
 jobs:
   pylint:
     runs-on: ubuntu-latest
@@ -15,18 +13,19 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install pylint
       - name: Run Pylint
-        run: pylint CTFd/ --fail-under=7 --ignore=migrations | tee pylint-report.txt
-        continue-on-error: true
-
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          pylint app/ --fail-under=7 --ignore=migrations | tee pylint-report.txt
       - name: Generate Security Dashboard Summary
         if: always()
-        continue-on-error: true
         run: |
           echo "## 📝 Pylint Scan Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

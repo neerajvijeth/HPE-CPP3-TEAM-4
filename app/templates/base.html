@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SecureVault{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+{% if current_user.is_authenticated %}
+<nav class="navbar">
+    <div class="nav-brand">
+        <span class="brand-icon">🔐</span>
+        <span class="brand-name">SecureVault</span>
+    </div>
+    <div class="nav-links">
+        <a href="{{ url_for('vault.index') }}" class="nav-link {% if request.blueprint == 'vault' %}active{% endif %}">Vault</a>
+        <a href="{{ url_for('fetcher.fetch_page') }}" class="nav-link {% if request.blueprint == 'fetcher' %}active{% endif %}">Site Fetcher</a>
+        <a href="{{ url_for('profile.index') }}" class="nav-link {% if request.blueprint == 'profile' %}active{% endif %}">Profile</a>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('admin.dashboard') }}" class="nav-link admin-link">Admin</a>
+        {% endif %}
+        <a href="{{ url_for('auth.logout') }}" class="nav-link logout-link">Logout</a>
+    </div>
+</nav>
+{% endif %}
+
+<main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-container">
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">
+                        {{ message }}
+                        <button class="flash-close" onclick="this.parentElement.remove()">×</button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+</main>
+
+<script src="{{ url_for('static', filename='js/vault.js') }}"></script>
+</body>
+</html>

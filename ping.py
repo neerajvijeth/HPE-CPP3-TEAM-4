@@ -1,22 +1,25 @@
 """
 Script for checking that a database server is available.
-Essentially a cross-platform, database agnostic mysqladmin.
+Essentially a cross-platform, database agnostic wait script.
 """
 import time
+import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
 
-from CTFd.config import Config
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://securevault:securevault@localhost:5432/securevault"
+)
 
-url = make_url(Config.DATABASE_URL)
+url = make_url(DATABASE_URL)
 
 # Ignore sqlite databases
 if url.drivername.startswith("sqlite"):
     exit(0)
 
 # Null out the database so raw_connection doesnt error if it doesnt exist
-# CTFd will create the database if it doesnt exist
 url = url._replace(database=None)
 
 # Wait for the database server to be available

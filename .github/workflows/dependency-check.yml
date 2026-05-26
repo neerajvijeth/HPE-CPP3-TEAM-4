@@ -1,11 +1,10 @@
 name: OWASP Dependency Check Pipeline
 
-# This tells GitHub to run the scan every time code is pushed
 on:
   push:
-    branches: [ "main", "devsecops-setup1", "test/dependency-check" ]
+    branches: ['securevault-fixed']
   pull_request:
-    branches: [ "main", "devsecops-setup1" ]
+    branches: ['securevault-fixed']
   workflow_dispatch:
 
 jobs:
@@ -16,7 +15,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # NEW STEP: Set up GitHub Caching for the NVD Database
       - name: Cache NVD Database
         uses: actions/cache@v4
         with:
@@ -25,7 +23,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-odc-
 
-      # 1. Create report and data directories, and grant write permissions for Docker
       - name: Create Directories
         run: |
           mkdir -p odc-reports
@@ -33,7 +30,6 @@ jobs:
           chmod 777 odc-reports
           chmod 777 odc-data
 
-      # 2. Run OWASP Dependency-Check via Docker as ROOT
       - name: Run OWASP Dependency-Check
         run: |
           docker run --rm -u root \
@@ -41,26 +37,19 @@ jobs:
             -v ${{ github.workspace }}/odc-reports:/report \
             -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
             owasp/dependency-check:latest \
-            --project "HPE-CPP3-TEAM-4-CTFd" \
+            --project "HPE-CPP3-TEAM-4-SecureVault" \
             --scan /src \
             --format ALL \
             --out /report \
             --enableExperimental \
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
-        continue-on-error: true
 
-      # 3. Generate Dynamic Security Dashboard
       - name: Generate Security Dashboard Summary
         if: always()
-        continue-on-error: true
         run: |
-          # Check if the JSON report was actually generated
           if [ -f "odc-reports/dependency-check-report.json" ]; then
-            # Extract numbers using jq
             TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
             VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
-            
-            # Print the dynamic dashboard
             echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
             echo "The scan completed successfully. Here is the high-level summary:" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -72,12 +61,10 @@ jobs:
             echo "2. Download the \`OWASP-Dependency-Check-Report\` zip file." >> $GITHUB_STEP_SUMMARY
             echo "3. Extract and open the HTML file to view detailed CVE descriptions and mitigation steps." >> $GITHUB_STEP_SUMMARY
           else
-            # Print an error dashboard if the NVD download failed or crashed
             echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ **WARNING: The scan failed to generate a report.** Please check the terminal logs in the 'Run OWASP Dependency-Check' step above to see what went wrong." >> $GITHUB_STEP_SUMMARY
           fi
 
-      # 4. Upload the HTML report as a downloadable artifact
       - name: Upload HTML Report
         uses: actions/upload-artifact@v4
         if: always()

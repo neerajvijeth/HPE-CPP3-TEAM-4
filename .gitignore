@@ -43,10 +43,6 @@ htmlcov/
 nosetests.xml
 coverage.xml
 
-# Translations
-# TODO: CTFd 4.0 We should consider generating .mo files in a Docker image instead of saving them in git
-# *.mo
-
 # Django stuff:
 *.log
 
@@ -63,17 +59,12 @@ target/
 *.log.*
 .idea/
 .vscode/
-CTFd/static/uploads
-CTFd/uploads
+securevault/app/static/uploads/*
+!securevault/app/static/uploads/.gitkeep
 .data/
-.ctfd_secret_key
-.*.swp
 
 # Vagrant
 .vagrant
-
-# CTFd Exports
-*.zip
 
 # JS
 node_modules/
@@ -83,3 +74,17 @@ flask_profiler.sql
 
 # OWASP Dependency-Check local scans
 #odc-reports/
+
+venv/
+__pycache__/
+*.pyc
+*.pyo
+migrations/
+.env
+*.db
+app/static/uploads/*
+!app/static/uploads/.gitkeep
+.scannerwork/
+reports/
+htmlcov/
+.coverage

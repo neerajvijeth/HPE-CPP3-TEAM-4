@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Audit Logs — SecureVault{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Audit Logs</h1>
+            <p class="page-subtitle">{{ logs|length }} total events</p>
+        </div>
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-secondary">← Dashboard</a>
+    </div>
+
+    <div class="card">
+        {% if logs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User ID</th>
+                    <th>Action</th>
+                    <th>Details</th>
+                    <th>IP Address</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ log.user_id or '—' }}</td>
+                    <td><code>{{ log.action }}</code></td>
+                    <td>{{ log.details or '—' }}</td>
+                    <td>{{ log.ip_address or '—' }}</td>
+                    <td><span class="status-badge status-{{ log.status }}">{{ log.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <span class="empty-icon">📋</span>
+            <h2>No logs recorded yet</h2>
+            <p>Audit events will appear here as users log in and interact with the vault.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

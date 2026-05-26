@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}My Vault — SecureVault{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">My Vault</h1>
+            <p class="page-subtitle">{{ entries|length }} saved credential{{ 's' if entries|length != 1 else '' }}</p>
+        </div>
+        <a href="{{ url_for('vault.add') }}" class="btn btn-primary">+ Add Entry</a>
+    </div>
+
+    {% if entries %}
+    <div class="vault-grid">
+        {% for entry in entries %}
+        <div class="vault-card">
+            <div class="vault-card-header">
+                <div class="site-info">
+                    <span class="site-favicon">🌐</span>
+                    <div>
+                        <h3 class="site-name">{{ entry.site_name }}</h3>
+                        {% if entry.site_url %}
+                        <a href="{{ entry.site_url }}" target="_blank" class="site-url">{{ entry.site_url }}</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-actions">
+                    <a href="{{ url_for('vault.edit', entry_id=entry.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    <form method="POST" action="{{ url_for('vault.delete', entry_id=entry.id) }}"
+                          style="display:inline" onsubmit="return confirm('Delete this entry?')">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+            <div class="vault-card-body">
+                <div class="credential-row">
+                    <span class="cred-label">Username</span>
+                    <span class="cred-value">{{ entry.username }}</span>
+                </div>
+                <div class="credential-row">
+                    <span class="cred-label">Password</span>
+                    <div class="password-field">
+                        <span class="cred-value password-masked" id="pw-{{ entry.id }}">••••••••••</span>
+                        <button class="btn btn-xs btn-ghost"
+                                onclick="revealPassword({{ entry.id }}, this)"
+                                data-revealed="false">Show</button>
+                    </div>
+                </div>
+                {% if entry.notes %}
+                <div class="credential-row">
+                    <span class="cred-label">Notes</span>
+                    <span class="cred-value notes-text">{{ entry.notes }}</span>
+                </div>
+                {% endif %}
+            </div>
+            <div class="vault-card-footer">
+                <span class="entry-meta">Added {{ entry.created_at.strftime('%b %d, %Y') }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <span class="empty-icon">🔒</span>
+        <h2>Your vault is empty</h2>
+        <p>Add your first credential to get started</p>
+        <a href="{{ url_for('vault.add') }}" class="btn btn-primary">Add First Entry</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

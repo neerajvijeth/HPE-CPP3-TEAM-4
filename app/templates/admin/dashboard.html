@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — SecureVault{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Admin Dashboard</h1>
+            <p class="page-subtitle">System overview</p>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-icon">👥</span>
+            <div class="stat-value">{{ total_users }}</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">✅</span>
+            <div class="stat-value">{{ active_users }}</div>
+            <div class="stat-label">Active Users</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📋</span>
+            <div class="stat-value">{{ total_logs }}</div>
+            <div class="stat-label">Audit Events</div>
+        </div>
+    </div>
+
+    <div class="admin-nav-cards">
+        <a href="{{ url_for('admin.users') }}" class="admin-nav-card">
+            <span class="admin-nav-icon">👥</span>
+            <h3>Manage Users</h3>
+            <p>View, enable, or disable user accounts</p>
+        </a>
+        <a href="{{ url_for('admin.logs') }}" class="admin-nav-card">
+            <span class="admin-nav-icon">📋</span>
+            <h3>Audit Logs</h3>
+            <p>View all system audit events</p>
+        </a>
+    </div>
+
+    <div class="card mt-20">
+        <h2 class="card-title">Recent Activity</h2>
+        {% if recent_logs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User ID</th>
+                    <th>Action</th>
+                    <th>IP Address</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in recent_logs %}
+                <tr>
+                    <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ log.user_id or 'N/A' }}</td>
+                    <td>{{ log.action }}</td>
+                    <td>{{ log.ip_address or 'N/A' }}</td>
+                    <td><span class="status-badge status-{{ log.status }}">{{ log.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No activity recorded yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

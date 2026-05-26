@@ -1,37 +1,31 @@
 name: Trivy Security Scan
-
 on:
   push:
-    branches: ["devsecops-setup1"]
+    branches: ['securevault-fixed']
   pull_request:
-    branches: ["devsecops-setup1"]
+    branches: ['securevault-fixed']
   workflow_dispatch:
-
 jobs:
   trivy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Build an image from Dockerfile
         run: |
-          docker build -t ctfd:${{ github.sha }} .
-
+          docker build -t securevault:${{ github.sha }} .
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'ctfd:${{ github.sha }}'
+          image-ref: 'securevault:${{ github.sha }}'
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           output: 'trivy-results.txt'
           # Uncomment the line below to fail the build if CRITICAL/HIGH vulnerabilities are found
           # exit-code: '1'
-
       - name: Generate Security Dashboard Summary
         if: always()
-        continue-on-error: true
         run: |
           echo "## 🛡️ Trivy Security Scan Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
