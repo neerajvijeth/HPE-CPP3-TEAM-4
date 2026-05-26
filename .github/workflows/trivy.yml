@@ -1,9 +1,9 @@
 name: Trivy Security Scan
 on:
   push:
-    branches: ['securevault-fixed']
+    branches: ['devsecops-setup1', 'securevault-fixed']
   pull_request:
-    branches: ['securevault-fixed']
+    branches: ['devsecops-setup1', 'securevault-fixed']
   workflow_dispatch:
 jobs:
   trivy:

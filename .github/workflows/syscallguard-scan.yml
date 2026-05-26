@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r securevault/requirements.txt -r securevault/requirements-dev.txt
+          pip install -r requirements.txt -r requirements-dev.txt
           pip install pytest
           sudo apt-get update && sudo apt-get install -y strace
 
@@ -44,9 +44,8 @@ jobs:
       # ─── PHASE 2: Profile app tests under strace ───
       - name: Profile pytest under strace
         run: |
-          cd securevault
           sudo strace -f -o /tmp/pytest-syscalls.log \
-            python -m pytest tests/ -v --tb=short 2>&1 || true
+            python -m pytest tests_fixed/ -c pytest_fixed.ini -v --tb=short 2>&1 || true
           sudo chmod 644 /tmp/pytest-syscalls.log
           echo "Strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
 
@@ -71,20 +70,20 @@ jobs:
       - name: Generate pytest syscall profile
         run: |
           GIT_SHA=$(git rev-parse --short HEAD)
-          REQ_HASH=$(sha256sum securevault/requirements.txt | cut -d' ' -f1)
+          REQ_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
           python syscallguard/generate_profile.py \
             /tmp/pytest-syscalls.log \
             /tmp/profiles/pytest-profile.json \
             --source pytest \
             --git-sha "$GIT_SHA" \
-            --req-file securevault/requirements.txt
+            --req-file requirements.txt
 
       # ─── PHASE 3: Profile dependencies under strace ───
       - name: Profile dependencies under strace
         run: |
           sudo strace -f -o /tmp/dep-syscalls.log \
             python syscallguard/dep_exerciser.py \
-            securevault/requirements.txt \
+            requirements.txt \
             --output /tmp/profiles/dep-exercise-report.json 2>&1 || true
           sudo chmod 644 /tmp/dep-syscalls.log 2>/dev/null || true
 
@@ -96,20 +95,15 @@ jobs:
             /tmp/profiles/dep-profile.json \
             --source dependency \
             --git-sha "$GIT_SHA" \
-            --req-file securevault/requirements.txt
+            --req-file requirements.txt
 
-      # ─── PHASE 4: Download previous baseline ───
-      - name: Download previous baseline
-        id: download-baseline
-        uses: dawidd6/action-download-artifact@v3
+      # ─── PHASE 4: Restore previous baseline from cache ───
+      - name: Restore baseline from cache
+        id: baseline-cache
+        uses: actions/cache/restore@v4
         with:
-          name: syscallguard-baseline
-          path: /tmp/baseline/
-          search_artifacts: true
-          if_no_artifact_found: ignore
-          workflow: syscallguard-scan.yml
-          branch: ${{ github.ref_name }}
-          workflow_conclusion: completed
+          path: /tmp/baseline
+          key: syscallguard-baseline-${{ github.ref_name }}
 
       # ─── PHASE 5: Jaccard diff engine ───
       - name: Run Jaccard diff engine
@@ -181,15 +175,20 @@ jobs:
             --mode whitelist \
             --output /tmp/profiles/seccomp-profile.json || true
 
-      # ─── PHASE 12: Upload current profile as new baseline ───
-      - name: Upload profile as baseline artifact
-        if: always()
-        uses: actions/upload-artifact@v4
+      # ─── PHASE 12: Save baseline to cache (first run only) ───
+      - name: Establish baseline (first run only)
+        if: steps.baseline-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/baseline
+          cp /tmp/profiles/pytest-profile.json /tmp/baseline/pytest-profile.json
+          echo "✅ Baseline established and will be cached for future runs"
+
+      - name: Save baseline cache (first run only)
+        if: steps.baseline-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          name: syscallguard-baseline
-          path: /tmp/profiles/pytest-profile.json
-          retention-days: 90
-          overwrite: true
+          path: /tmp/baseline
+          key: syscallguard-baseline-${{ github.ref_name }}
 
       - name: Upload all reports
         uses: actions/upload-artifact@v4
