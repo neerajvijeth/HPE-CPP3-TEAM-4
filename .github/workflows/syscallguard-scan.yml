@@ -1,0 +1,295 @@
+name: SyscallGuard Behavioral Fingerprint Scan
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+# Prevent concurrent runs on the same branch — ensures baseline is saved
+# before the next run tries to download it
+concurrency:
+  group: syscallguard-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RISK_THRESHOLD: 10  # Risk score threshold for FAIL verdict
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  syscall-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r securevault/requirements.txt -r securevault/requirements-dev.txt
+          pip install pytest
+          sudo apt-get update && sudo apt-get install -y strace
+
+      # ─── PHASE 1: Run SyscallGuard unit tests ───
+      - name: Run SyscallGuard Unit Tests
+        run: |
+          cd syscallguard
+          python -m pytest tests/ -v --tb=short | tee syscallguard-test-report.txt
+
+      # ─── PHASE 2: Profile app tests under strace ───
+      - name: Profile pytest under strace
+        run: |
+          cd securevault
+          sudo strace -f -o /tmp/pytest-syscalls.log \
+            python -m pytest tests/ -v --tb=short 2>&1 || true
+          sudo chmod 644 /tmp/pytest-syscalls.log
+          echo "Strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
+
+      # ─── PHASE 2b: Attack simulation injection (DEMO) ───
+      # To trigger: create an empty file called ATTACK_DEMO in repo root
+      # To disable: delete the ATTACK_DEMO file
+      - name: Inject attack simulation (if ATTACK_DEMO trigger exists)
+        run: |
+          if [ -f "ATTACK_DEMO" ]; then
+            echo "🚨 ATTACK_DEMO trigger detected — injecting dangerous syscalls..."
+            sudo strace -f -o /tmp/attack-syscalls.log \
+              python syscallguard/demo/attack_simulation.py 2>&1 || true
+            sudo chmod 666 /tmp/attack-syscalls.log 2>/dev/null || true
+            echo "Attack strace log size: $(wc -l < /tmp/attack-syscalls.log) lines"
+            # Merge attack syscalls into main pytest log (needs sudo — strace log is root-owned)
+            sudo bash -c "cat /tmp/attack-syscalls.log >> /tmp/pytest-syscalls.log"
+            echo "Combined strace log size: $(wc -l < /tmp/pytest-syscalls.log) lines"
+          else
+            echo "✅ No ATTACK_DEMO trigger found — clean run"
+          fi
+
+      - name: Generate pytest syscall profile
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          REQ_HASH=$(sha256sum securevault/requirements.txt | cut -d' ' -f1)
+          python syscallguard/generate_profile.py \
+            /tmp/pytest-syscalls.log \
+            /tmp/profiles/pytest-profile.json \
+            --source pytest \
+            --git-sha "$GIT_SHA" \
+            --req-file securevault/requirements.txt
+
+      # ─── PHASE 3: Profile dependencies under strace ───
+      - name: Profile dependencies under strace
+        run: |
+          sudo strace -f -o /tmp/dep-syscalls.log \
+            python syscallguard/dep_exerciser.py \
+            securevault/requirements.txt \
+            --output /tmp/profiles/dep-exercise-report.json 2>&1 || true
+          sudo chmod 644 /tmp/dep-syscalls.log 2>/dev/null || true
+
+      - name: Generate dependency syscall profile
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          python syscallguard/generate_profile.py \
+            /tmp/dep-syscalls.log \
+            /tmp/profiles/dep-profile.json \
+            --source dependency \
+            --git-sha "$GIT_SHA" \
+            --req-file securevault/requirements.txt
+
+      # ─── PHASE 4: Download previous baseline ───
+      - name: Download previous baseline
+        id: download-baseline
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: syscallguard-baseline
+          path: /tmp/baseline/
+          search_artifacts: true
+          if_no_artifact_found: ignore
+          workflow: syscallguard-scan.yml
+          branch: ${{ github.ref_name }}
+
+      # ─── PHASE 5: Jaccard diff engine ───
+      - name: Run Jaccard diff engine
+        id: diff-engine
+        run: |
+          BASELINE="/tmp/baseline/pytest-profile.json"
+          CURRENT="/tmp/profiles/pytest-profile.json"
+
+          if [ -f "$BASELINE" ]; then
+            echo "📊 Baseline found — running diff engine..."
+            echo "baseline_found=true" >> $GITHUB_OUTPUT
+            python syscallguard/profile_diff.py \
+              "$CURRENT" \
+              "$BASELINE" \
+              --threshold ${{ env.RISK_THRESHOLD }} \
+              --output /tmp/profiles/diff-report.json \
+              --github-summary /tmp/profiles/github-summary.md || true
+          else
+            echo "ℹ️ No baseline found — this is the first run. Establishing baseline..."
+            echo "baseline_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ─── PHASE 6: Frequency anomaly analysis ───
+      - name: Run frequency anomaly analysis
+        if: steps.diff-engine.outputs.baseline_found == 'true'
+        run: |
+          python syscallguard/frequency_analyzer.py \
+            /tmp/profiles/pytest-profile.json \
+            /tmp/baseline/pytest-profile.json \
+            --output /tmp/profiles/frequency-report.json || true
+
+      # ─── PHASE 7: Cosine similarity analysis ───
+      - name: Run cosine similarity analysis
+        if: steps.diff-engine.outputs.baseline_found == 'true'
+        run: |
+          python syscallguard/cosine_engine.py \
+            /tmp/profiles/pytest-profile.json \
+            /tmp/baseline/pytest-profile.json \
+            --output /tmp/profiles/cosine-report.json || true
+
+      # ─── PHASE 8: Sequence analysis ───
+      - name: Run sequence (n-gram) analysis
+        run: |
+          python syscallguard/sequence_analyzer.py \
+            /tmp/pytest-syscalls.log \
+            --n 2 3 \
+            --output /tmp/profiles/sequence-report.json || true
+
+      # ─── PHASE 9: Cross-profile correlation ───
+      - name: Run cross-profile correlation
+        run: |
+          python syscallguard/cross_correlator.py \
+            /tmp/profiles/pytest-profile.json \
+            /tmp/profiles/dep-profile.json \
+            --output /tmp/profiles/correlation-report.json || true
+
+      # ─── PHASE 10: Blast radius containment ───
+      - name: Compute blast radius containment
+        run: |
+          python syscallguard/blast_radius.py \
+            /tmp/profiles/pytest-profile.json \
+            --output /tmp/profiles/blast-radius-report.json || true
+
+      # ─── PHASE 11: Seccomp profile generation ───
+      - name: Generate seccomp profile
+        run: |
+          python syscallguard/seccomp_generator.py \
+            /tmp/profiles/pytest-profile.json \
+            --mode whitelist \
+            --output /tmp/profiles/seccomp-profile.json || true
+
+      # ─── PHASE 12: Upload current profile as new baseline ───
+      - name: Upload profile as baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: syscallguard-baseline
+          path: /tmp/profiles/pytest-profile.json
+          retention-days: 90
+          overwrite: true
+
+      - name: Upload all reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: syscallguard-reports
+          path: |
+            /tmp/profiles/pytest-profile.json
+            /tmp/profiles/dep-profile.json
+            /tmp/profiles/diff-report.json
+            /tmp/profiles/blast-radius-report.json
+            /tmp/profiles/dep-exercise-report.json
+            /tmp/profiles/frequency-report.json
+            /tmp/profiles/cosine-report.json
+            /tmp/profiles/sequence-report.json
+            /tmp/profiles/correlation-report.json
+            /tmp/profiles/seccomp-profile.json
+          retention-days: 30
+
+      # ─── PHASE 13: Generate rich dashboard ───
+      - name: Generate Security Dashboard Summary
+        if: always()
+        run: |
+          echo "## 🛡️ SyscallGuard — Behavioral Fingerprint Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Profile stats
+          if [ -f "/tmp/profiles/pytest-profile.json" ]; then
+            SYSCALL_COUNT=$(python3 -c "import json; d=json.load(open('/tmp/profiles/pytest-profile.json')); print(d['total_unique_syscalls'])")
+            INVOCATIONS=$(python3 -c "import json; d=json.load(open('/tmp/profiles/pytest-profile.json')); print(d['total_syscall_invocations'])")
+            echo "### 📊 Current Profile" >> $GITHUB_STEP_SUMMARY
+            echo "- Unique syscalls captured: **${SYSCALL_COUNT}**" >> $GITHUB_STEP_SUMMARY
+            echo "- Total syscall invocations: **${INVOCATIONS}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Diff results
+          if [ -f "/tmp/profiles/github-summary.md" ]; then
+            cat /tmp/profiles/github-summary.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ℹ️ First Run — Baseline Established" >> $GITHUB_STEP_SUMMARY
+            echo "No previous baseline found. This run's profile has been saved as the baseline." >> $GITHUB_STEP_SUMMARY
+            echo "The diff engine will activate on the **next CI run**." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Frequency analysis
+          if [ -f "/tmp/profiles/frequency-report.json" ]; then
+            FREQ_ANOMALIES=$(python3 -c "import json; d=json.load(open('/tmp/profiles/frequency-report.json')); print(d['anomalies_detected'])")
+            FREQ_RISK=$(python3 -c "import json; d=json.load(open('/tmp/profiles/frequency-report.json')); print(d['frequency_risk_score'])")
+            echo "### 📈 Frequency Anomaly Analysis" >> $GITHUB_STEP_SUMMARY
+            echo "- Anomalies detected: **${FREQ_ANOMALIES}**" >> $GITHUB_STEP_SUMMARY
+            echo "- Frequency risk score: **${FREQ_RISK}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Cosine similarity
+          if [ -f "/tmp/profiles/cosine-report.json" ]; then
+            COSINE=$(python3 -c "import json; d=json.load(open('/tmp/profiles/cosine-report.json')); print(d['cosine_percentage'])")
+            echo "### 📐 Cosine Similarity: \`${COSINE}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Sequence analysis
+          if [ -f "/tmp/profiles/sequence-report.json" ]; then
+            SEQ_DETECT=$(python3 -c "import json; d=json.load(open('/tmp/profiles/sequence-report.json')); print(d['suspicious_detections'])")
+            SEQ_RISK=$(python3 -c "import json; d=json.load(open('/tmp/profiles/sequence-report.json')); print(d['sequence_risk_score'])")
+            echo "### 🔗 Sequence (N-gram) Analysis" >> $GITHUB_STEP_SUMMARY
+            echo "- Suspicious sequences: **${SEQ_DETECT}**" >> $GITHUB_STEP_SUMMARY
+            echo "- Sequence risk score: **${SEQ_RISK}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Cross-correlation
+          if [ -f "/tmp/profiles/correlation-report.json" ]; then
+            COVERAGE=$(python3 -c "import json; d=json.load(open('/tmp/profiles/correlation-report.json')); print(f\"{d['dependency_coverage']:.1f}\")")
+            UNTESTED=$(python3 -c "import json; d=json.load(open('/tmp/profiles/correlation-report.json')); print(d['dep_only_count'])")
+            echo "### 🔀 Cross-Profile Correlation" >> $GITHUB_STEP_SUMMARY
+            echo "- Dependency test coverage: **${COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
+            echo "- Untested dependency syscalls: **${UNTESTED}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Blast radius
+          if [ -f "/tmp/profiles/blast-radius-report.json" ]; then
+            CONTAINMENT=$(python3 -c "import json; d=json.load(open('/tmp/profiles/blast-radius-report.json')); print(f\"{d['containment_score']:.1f}\")")
+            BLOCKED=$(python3 -c "import json; d=json.load(open('/tmp/profiles/blast-radius-report.json')); print(d['techniques_fully_blocked'])")
+            TOTAL=$(python3 -c "import json; d=json.load(open('/tmp/profiles/blast-radius-report.json')); print(d['total_techniques'])")
+            echo "### 🛡️ Blast Radius Containment: \`${CONTAINMENT}%\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Exploit techniques fully blocked: **${BLOCKED}/${TOTAL}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Seccomp
+          if [ -f "/tmp/profiles/seccomp-profile.json" ]; then
+            ALLOWED=$(python3 -c "import json; d=json.load(open('/tmp/profiles/seccomp-profile.json')); print(len(d['syscalls'][0]['names']))")
+            echo "### 🔒 Seccomp Profile Generated" >> $GITHUB_STEP_SUMMARY
+            echo "- Allowed syscalls: **${ALLOWED}**" >> $GITHUB_STEP_SUMMARY
+            echo "- Mode: **whitelist** (all other syscalls blocked)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Generated by [SyscallGuard](syscallguard/) — Syscall behavioral fingerprinting for supply chain security*" >> $GITHUB_STEP_SUMMARY
