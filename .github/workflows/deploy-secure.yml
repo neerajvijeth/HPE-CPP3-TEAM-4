@@ -91,6 +91,7 @@ jobs:
               postgres:14
 
             sleep 15
+            #wait for the database to initialize
 
             sudo docker run -d \
               --name securevault_secure_app \
