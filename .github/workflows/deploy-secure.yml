@@ -1,0 +1,110 @@
+name: SecureVault Secure CI/CD Deployment
+
+on:
+  workflow_run:
+    workflows:
+      - "Trivy Security Scan"
+    types:
+      - completed
+
+  workflow_dispatch:
+
+jobs:
+  docker-security-scan:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: 0
+
+  docker-build-push:
+    needs: docker-security-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t sanudocker11/secure_vault_secure:latest .
+
+      - name: Scan Docker Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: sanudocker11/secure_vault_secure:latest
+          format: table
+          exit-code: 0
+
+      - name: Push Docker Image
+        run: |
+          docker push sanudocker11/secure_vault_secure:latest
+
+  deploy-ec2-secure:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy SecureVault to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+
+          script: |
+
+            sudo docker pull sanudocker11/secure_vault_secure:latest
+
+            sudo docker stop securevault_secure_app || true
+            sudo docker rm securevault_secure_app || true
+
+            sudo docker stop securevault_secure_db || true
+            sudo docker rm securevault_secure_db || true
+
+            sudo docker network create securevault-secure-net || true
+
+            sudo docker volume create securevault_secure_data || true
+
+            sudo docker run -d \
+              --name securevault_secure_db \
+              --network securevault-secure-net \
+              -v securevault_secure_data:/var/lib/postgresql/data \
+              -e POSTGRES_DB=securevault \
+              -e POSTGRES_USER=securevault \
+              -e POSTGRES_PASSWORD=securevault \
+              postgres:14
+
+            sleep 15
+
+            sudo docker run -d \
+              --name securevault_secure_app \
+              --network securevault-secure-net \
+              -p 80:8000 \
+              -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
+              -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
+              -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
+              sanudocker11/secure_vault_secure:latest
+
+            sleep 20
+
+            sudo docker ps
