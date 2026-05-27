@@ -1,9 +1,5 @@
 name: Bandit Scan
 on:
-  push:
-    branches: ['securevault-fixed']
-  pull_request:
-    branches: ['securevault-fixed']
   workflow_dispatch:
 jobs:
   bandit:

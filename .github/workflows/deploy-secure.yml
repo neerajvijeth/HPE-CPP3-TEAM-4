@@ -1,86 +1,249 @@
-name: SecureVault Secure CI/CD Deployment
+name: SecureVault Secure DevSecOps Pipeline
 
 on:
-  workflow_run:
-    workflows:
-      - "Trivy Security Scan"
-    types:
-      - completed
-
+  push:
+    branches:
+      - securevault-fixed
+  pull_request:
+    branches:
+      - securevault-fixed
   workflow_dispatch:
 
 jobs:
-  docker-security-scan:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  pytest:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install pytest pytest-cov
+      - name: Run Unit Tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          pytest tests_fixed/ -c pytest_fixed.ini -v --tb=short | tee pytest-report.txt
+      - name: Generate Test Summary
+        if: always()
+        run: |
+          echo "## Pytest Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "pytest-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat pytest-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Pytest report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
 
-      - name: Run Trivy Filesystem Scan
+  pylint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pylint
+      - name: Run Pylint
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          pylint app/ --fail-under=7 --ignore=migrations | tee pylint-report.txt
+      - name: Generate Lint Summary
+        if: always()
+        run: |
+          echo "## Pylint Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "pylint-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat pylint-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Pylint report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install bandit
+      - name: Run Bandit
+        run: |
+          set -o pipefail
+          bandit -r app/ -ll | tee bandit-report.txt
+      - name: Generate Bandit Summary
+        if: always()
+        run: |
+          echo "## Bandit Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "bandit-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat bandit-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Bandit report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image for Trivy
+        run: |
+          docker build -t securevault_secure:${{ github.sha }} .
+      - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: fs
-          scan-ref: .
+          image-ref: securevault_secure:${{ github.sha }}
           format: table
-          exit-code: 0
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          output: trivy-results.txt
+          exit-code: "1"
+      - name: Generate Trivy Summary
+        if: always()
+        run: |
+          echo "## Trivy Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "trivy-results.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Trivy report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache NVD Database
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/odc-data
+          key: ${{ runner.os }}-odc-nvd
+          restore-keys: |
+            ${{ runner.os }}-odc-
+      - name: Create Directories
+        run: |
+          mkdir -p odc-reports
+          mkdir -p odc-data
+          chmod 777 odc-reports
+          chmod 777 odc-data
+      - name: Run OWASP Dependency-Check
+        run: |
+          docker run --rm -u root \
+            -v ${{ github.workspace }}:/src \
+            -v ${{ github.workspace }}/odc-reports:/report \
+            -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+            owasp/dependency-check:latest \
+            --project "SecureVault-Secure" \
+            --scan /src \
+            --format ALL \
+            --out /report \
+            --enableExperimental \
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+      - name: Generate Dependency-Check Summary
+        if: always()
+        run: |
+          if [ -f "odc-reports/dependency-check-report.json" ]; then
+            TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
+            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
+            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
+            echo "- Total dependencies scanned: $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
+            echo "- Vulnerable dependencies found: $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
+            echo "Report generation failed. Check logs." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OWASP-Dependency-Check-Report
+          path: odc-reports/dependency-check-report.html
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+      - name: Check SonarQube Quality Gate
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Generate Sonar Summary
+        if: always()
+        run: |
+          echo "## SonarQube Scan" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    needs: docker-security-scan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/securevault-fixed'
+    needs:
+      - pytest
+      - pylint
+      - bandit
+      - trivy
+      - dependency-check
+      - sonarcloud
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Build Docker Image
         run: |
           docker build -t sanudocker11/secure_vault_secure:latest .
-
-      - name: Scan Docker Image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: sanudocker11/secure_vault_secure:latest
-          format: table
-          exit-code: 0
-
       - name: Push Docker Image
         run: |
           docker push sanudocker11/secure_vault_secure:latest
 
   deploy-ec2-secure:
     needs: docker-build-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/securevault-fixed'
     runs-on: ubuntu-latest
-
     steps:
-      - name: Deploy SecureVault to EC2
+      - name: Deploy to Secure EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST_SECURE }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-
           script: |
-
             sudo docker pull sanudocker11/secure_vault_secure:latest
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
 
-            sudo docker stop securevault_secure_db || true
-            sudo docker rm securevault_secure_db || true
-
             sudo docker network create securevault-secure-net || true
 
             sudo docker volume create securevault_secure_data || true
 
+            sudo docker start securevault_secure_db || \
             sudo docker run -d \
               --name securevault_secure_db \
               --network securevault-secure-net \
@@ -104,3 +267,33 @@ jobs:
             sleep 20
 
             sudo docker ps
+
+  zap-dast:
+    needs: deploy-ec2-secure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployed app to become reachable
+        run: |
+          TARGET_URL="http://${{ secrets.EC2_HOST_SECURE }}"
+
+          for attempt in $(seq 1 12); do
+            if curl --silent --show-error --fail --max-time 10 "$TARGET_URL" > /dev/null; then
+              echo "Application is reachable at $TARGET_URL"
+              exit 0
+            fi
+
+            echo "Waiting for application at $TARGET_URL (attempt $attempt/12)"
+            sleep 10
+          done
+
+          echo "Application did not become reachable in time"
+          exit 1
+
+      - name: Run OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target: http://${{ secrets.EC2_HOST_SECURE }}
+          cmd_options: "-a"
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report

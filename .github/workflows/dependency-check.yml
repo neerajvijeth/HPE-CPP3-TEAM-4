@@ -1,10 +1,6 @@
 name: OWASP Dependency Check Pipeline
 
 on:
-  push:
-    branches: ['securevault-fixed']
-  pull_request:
-    branches: ['securevault-fixed']
   workflow_dispatch:
 
 jobs:
