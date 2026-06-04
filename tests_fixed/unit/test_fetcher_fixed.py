@@ -67,7 +67,7 @@ class TestFetcherEndpointFixed:
 
     def test_internal_url_rejected_before_fetch(self, logged_in_alice):
         """FIX A10: requests.get must NOT be called for blocked URLs."""
-        with patch("app.routes.fetcher.http_requests.get") as mock_get:
+        with patch("app.routes.fetcher.requests.get") as mock_get:
             response = logged_in_alice.post("/fetcher/fetch-site",
                 data={"url": "http://169.254.169.254/latest/meta-data/"})
             mock_get.assert_not_called()
@@ -75,7 +75,7 @@ class TestFetcherEndpointFixed:
 
     def test_localhost_rejected_before_fetch(self, logged_in_alice):
         """FIX A10: localhost must be rejected without making a request."""
-        with patch("app.routes.fetcher.http_requests.get") as mock_get:
+        with patch("app.routes.fetcher.requests.get") as mock_get:
             response = logged_in_alice.post("/fetcher/fetch-site",
                 data={"url": "http://localhost:5432"})
             mock_get.assert_not_called()
@@ -86,7 +86,7 @@ class TestFetcherEndpointFixed:
         mock_resp = MagicMock()
         mock_resp.text = "<html><title>Test Site</title></html>"
         mock_resp.status_code = 200
-        with patch("app.routes.fetcher.http_requests.get", return_value=mock_resp):
+        with patch("app.routes.fetcher.requests.get", return_value=mock_resp):
             response = logged_in_alice.post("/fetcher/fetch-site",
                 data={"url": "https://example.com"})
         assert response.status_code == 200
@@ -97,7 +97,7 @@ class TestFetcherEndpointFixed:
         mock_resp = MagicMock()
         mock_resp.text = "SENSITIVE_DATA: secret"
         mock_resp.status_code = 200
-        with patch("app.routes.fetcher.http_requests.get", return_value=mock_resp):
+        with patch("app.routes.fetcher.requests.get", return_value=mock_resp):
             response = logged_in_alice.post("/fetcher/fetch-site",
                 data={"url": "https://example.com"})
         data = response.get_json()
@@ -106,7 +106,7 @@ class TestFetcherEndpointFixed:
 
     def test_error_message_not_verbose(self, logged_in_alice):
         """FIX A02: Internal error details must not be exposed."""
-        with patch("app.routes.fetcher.http_requests.get",
+        with patch("app.routes.fetcher.requests.get",
                    side_effect=Exception("postgres://user:pass@db")):
             response = logged_in_alice.post("/fetcher/fetch-site",
                 data={"url": "https://example.com"})
