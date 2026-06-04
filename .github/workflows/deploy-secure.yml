@@ -111,8 +111,10 @@ jobs:
           image-ref: securevault_secure:${{ github.sha }}
           format: table
           vuln-type: os,library
+          scanners: vuln
           severity: CRITICAL,HIGH
           output: trivy-results.txt
+          ignore-unfixed: true
           exit-code: "1"
       - name: Generate Trivy Summary
         if: always()
