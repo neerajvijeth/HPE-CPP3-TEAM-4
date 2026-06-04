@@ -3,10 +3,10 @@ name: SecureVault Secure DevSecOps Pipeline
 on:
   push:
     branches:
-      - securevault-fixed
+      - hps-secure
   pull_request:
     branches:
-      - securevault-fixed
+      - hps-secure
   workflow_dispatch:
 
 jobs:
@@ -199,7 +199,7 @@ jobs:
           echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/securevault-fixed'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
     needs:
       - pytest
       - pylint
@@ -224,7 +224,7 @@ jobs:
 
   deploy-ec2-secure:
     needs: docker-build-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/securevault-fixed'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to Secure EC2
