@@ -22,8 +22,17 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           output: 'trivy-results.txt'
-          # Uncomment the line below to fail the build if CRITICAL/HIGH vulnerabilities are found
           exit-code: '1'
+      - name: Upload report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "trivy-results.txt"
+          target: "/opt/securevault/"
+        continue-on-error: true
       - name: Generate Security Dashboard Summary
         if: always()
         run: |

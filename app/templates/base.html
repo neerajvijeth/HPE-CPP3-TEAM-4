@@ -24,6 +24,10 @@
         <a href="{{ url_for('admin.dashboard') }}" class="nav-link admin-link">Admin</a>
         {% endif %}
         <a href="{{ url_for('auth.logout') }}" class="nav-link logout-link">Logout</a>
+        <a href="{{ url_for('secdebt.dashboard') }}"
+        class="nav-link {% if request.blueprint == 'secdebt' %}active{% endif %}">
+        SecDebt
+        </a>
     </div>
 </nav>
 {% endif %}

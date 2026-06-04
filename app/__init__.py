@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from app.config import Config
-
+from app.routes.secdebt import secdebt_bp
 db = SQLAlchemy()
 login_manager = LoginManager()
 migrate = Migrate()
@@ -14,6 +14,7 @@ def create_app():
     app.config.from_object(Config)
 
     db.init_app(app)
+    from app.models.secdebt import SecDebtFinding, SecDebtScanRun
     login_manager.init_app(app)
     migrate.init_app(app, db)
 
@@ -60,5 +61,6 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(fetcher_bp)
+    app.register_blueprint(secdebt_bp)
 
     return app

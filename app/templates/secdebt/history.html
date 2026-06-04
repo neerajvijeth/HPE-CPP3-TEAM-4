@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}SecDebt — Scan History{% endblock %}
+
+{% block content %}
+<div class="secdebt-header">
+  <div>
+    <h1 class="page-title">
+      <span class="page-icon">📋</span> Scan Run History
+    </h1>
+    <p class="page-subtitle">Every time reports were ingested and debt scores recalculated</p>
+  </div>
+  <a href="{{ url_for('secdebt.dashboard') }}" class="btn btn-ghost">← Back to Dashboard</a>
+</div>
+
+<div class="card">
+  <table class="findings-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Run At (UTC)</th>
+        <th>Branch</th>
+        <th>Commit</th>
+        <th>Tools</th>
+        <th>Total Findings</th>
+        <th>New</th>
+        <th>Resolved</th>
+        <th>Debt Score</th>
+        <th>Triggered By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="mono-small">{{ run.id }}</td>
+        <td class="mono-small">{{ run.run_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><code class="inline-code">{{ run.branch or '—' }}</code></td>
+        <td class="mono-small">{{ run.commit_sha[:8] if run.commit_sha else '—' }}</td>
+        <td>
+          {% for t in (run.tools_ingested or '').split(',') %}
+          {% if t %}<span class="tool-tag">{{ t }}</span>{% endif %}
+          {% endfor %}
+        </td>
+        <td><strong>{{ run.total_findings }}</strong></td>
+        <td style="color:var(--accent)">+{{ run.new_findings }}</td>
+        <td style="color:var(--green)">-{{ run.resolved_findings }}</td>
+        <td>
+          <span class="score-badge {% if run.total_debt_score >= 50 %}score-critical{% elif run.total_debt_score >= 20 %}score-high{% elif run.total_debt_score >= 10 %}score-medium{% else %}score-low{% endif %}">
+            {{ "%.1f"|format(run.total_debt_score) }}
+          </span>
+        </td>
+        <td class="mono-small" style="color:var(--text-muted)">{{ run.triggered_by or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="10" class="empty-state">No scan runs yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+.secdebt-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; flex-wrap:wrap; gap:16px; }
+.page-title { font-family:var(--font-mono); font-size:1.6rem; color:var(--text-primary); display:flex; align-items:center; gap:10px; }
+.page-icon { font-size:1.4rem; }
+.page-subtitle { color:var(--text-secondary); font-size:0.875rem; margin-top:4px; }
+.card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+.findings-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+.findings-table th { padding:10px 16px; text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); border-bottom:1px solid var(--border); background:var(--bg-secondary); }
+.findings-table td { padding:10px 16px; border-bottom:1px solid var(--border-light); vertical-align:middle; }
+.mono-small { font-family:var(--font-mono); font-size:0.75rem; color:var(--text-secondary); }
+.empty-state { text-align:center; padding:40px; color:var(--text-muted); }
+.tool-tag { font-size:0.72rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:3px; padding:1px 6px; font-family:var(--font-mono); color:var(--text-secondary); margin-right:3px; }
+.inline-code { background:var(--bg-secondary); padding:1px 5px; border-radius:3px; font-family:var(--font-mono); font-size:0.78rem; color:var(--accent); }
+.score-badge { font-family:var(--font-mono); font-weight:700; font-size:0.85rem; padding:2px 8px; border-radius:var(--radius-sm); }
+.score-critical { background:#4a0000; color:#f85149; }
+.score-high { background:#3a1500; color:#f0883e; }
+.score-medium { background:#3a2a0a; color:#d29922; }
+.score-low { background:var(--green-dim); color:var(--green); }
+.btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:var(--radius-sm); font-size:0.875rem; font-weight:500; cursor:pointer; border:1px solid; transition:all 0.15s; text-decoration:none; }
+.btn-ghost { background:transparent; border-color:var(--border); color:var(--text-secondary); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
+</style>
+{% endblock %}

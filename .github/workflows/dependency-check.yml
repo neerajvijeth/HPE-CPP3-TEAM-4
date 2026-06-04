@@ -44,6 +44,17 @@ jobs:
             --enableExperimental \
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
 
+      - name: Upload JSON report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "odc-reports/dependency-check-report.json"
+          target: "/opt/securevault/"
+        continue-on-error: true
+
       - name: Generate Security Dashboard Summary
         if: always()
         run: |
@@ -51,21 +62,14 @@ jobs:
             TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
             VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
             echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "The scan completed successfully. Here is the high-level summary:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
             echo "* **📦 Total Dependencies Scanned:** $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
             echo "* **🚨 Vulnerable Dependencies Found:** $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 🔍 Next Steps for the Team:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Scroll to the bottom of this summary page to the **Artifacts** section." >> $GITHUB_STEP_SUMMARY
-            echo "2. Download the \`OWASP-Dependency-Check-Report\` zip file." >> $GITHUB_STEP_SUMMARY
-            echo "3. Extract and open the HTML file to view detailed CVE descriptions and mitigation steps." >> $GITHUB_STEP_SUMMARY
           else
             echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **WARNING: The scan failed to generate a report.** Please check the terminal logs in the 'Run OWASP Dependency-Check' step above to see what went wrong." >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **WARNING: Scan failed to generate report.**" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload HTML Report
+      - name: Upload HTML Report artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:

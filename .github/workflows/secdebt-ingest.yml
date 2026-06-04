@@ -1,0 +1,61 @@
+name: SecDebt-Optimizer Ingest
+
+# Runs AFTER all scanning workflows complete and reports are uploaded.
+# Calls the /secdebt/api/ingest endpoint on the running EC2 instance
+# so debt scores get updated on every push.
+
+on:
+  workflow_run:
+    workflows:
+      - "Bandit Scan"
+      - "Trivy Security Scan"
+      - "Pylint Scan"
+      - "OWASP Dependency Check Pipeline"
+    types:
+      - completed
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      report_dir:
+        description: "Directory containing report files on the EC2 instance"
+        default: "/opt/securevault"
+        required: false
+
+jobs:
+  ingest-secdebt:
+    # Run even if the upstream workflow failed (reports may still exist)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (to get commit SHA)
+        uses: actions/checkout@v4
+
+      - name: Trigger SecDebt Ingest via API
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_SECURE }}
+          SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          REPORT_DIR: ${{ github.event.inputs.report_dir || '/opt/securevault' }}
+        run: |
+          curl -f -X POST \
+            "http://${EC2_HOST}/secdebt/api/ingest" \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
+            -d "{
+              \"report_dir\": \"${REPORT_DIR}\",
+              \"commit_sha\": \"${COMMIT_SHA}\",
+              \"branch\": \"${BRANCH}\",
+              \"triggered_by\": \"github-actions\"
+            }" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10
+
+      - name: Report ingest summary
+        if: always()
+        run: |
+          echo "## 📊 SecDebt-Optimizer Ingest" >> $GITHUB_STEP_SUMMARY
+          echo "Triggered debt score recalculation on EC2 instance." >> $GITHUB_STEP_SUMMARY
+          echo "View the dashboard at: http://${{ secrets.EC2_HOST_SECURE }}/secdebt" >> $GITHUB_STEP_SUMMARY
