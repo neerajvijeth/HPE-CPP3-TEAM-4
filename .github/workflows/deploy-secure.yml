@@ -286,9 +286,18 @@ jobs:
     needs: deploy-ec2-secure
     runs-on: ubuntu-latest
     steps:
+      - name: Normalize ZAP target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          if [ -z "$HOST" ]; then
+            echo "EC2_HOST_SECURE is empty after trimming."
+            exit 1
+          fi
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
       - name: Wait for deployed app to become reachable
         run: |
-          TARGET_URL="http://${{ secrets.EC2_HOST_SECURE }}"
+          TARGET_URL="${EC2_TARGET_URL}"
 
           for attempt in $(seq 1 12); do
             if curl --silent --show-error --fail --max-time 10 "$TARGET_URL" > /dev/null; then
@@ -307,7 +316,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.15.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          target: http://${{ secrets.EC2_HOST_SECURE }}
+          target: ${{ env.EC2_TARGET_URL }}
           cmd_options: "-a"
           allow_issue_writing: false
           artifact_name: zap-baseline-report
