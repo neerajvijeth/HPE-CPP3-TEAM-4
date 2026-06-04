@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
 from app.utils.validators import validate_url
 from app.utils.logger import log_event
-import requests as http_requests
+import requests
 
 fetcher_bp = Blueprint("fetcher", __name__, url_prefix="/fetcher")
 
@@ -28,7 +28,7 @@ def fetch_site():
 
     try:
         # FIX A10: Only follow redirects to safe URLs, short timeout
-        response = http_requests.get(
+        response = requests.get(
             url,
             timeout=5,
             allow_redirects=False,  # FIX A10: Don't follow redirects (could redirect to internal)
@@ -55,7 +55,7 @@ def fetch_site():
             # Removed "preview" field that was leaking response content
         })
 
-    except http_requests.exceptions.Timeout:
+    except requests.exceptions.Timeout:
         return jsonify({"error": "Request timed out"}), 408
     except Exception:
         # FIX A02: Don't expose internal error details
