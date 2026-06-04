@@ -79,7 +79,6 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
-migrations/
 .env
 *.db
 app/static/uploads/*
@@ -88,3 +87,7 @@ app/static/uploads/*
 reports/
 htmlcov/
 .coverage
+
+migrations/__pycache__/
+migrations/versions/__pycache__/
+.DS_Store
