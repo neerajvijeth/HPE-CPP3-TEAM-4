@@ -38,6 +38,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=1001:1001 securevault/ /opt/securevault/
+COPY --chown=1001:1001 migrations/ /opt/securevault/migrations/
 COPY --chown=1001:1001 docker-entrypoint.sh /opt/docker-entrypoint.sh
 
 RUN useradd \
