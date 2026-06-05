@@ -37,7 +37,7 @@ jobs:
           SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
           BRANCH: ${{ github.ref_name }}
-          REPORT_DIR: ${{ github.event.inputs.report_dir || '/home/ubuntu/secdebt-reports' }}
+          REPORT_DIR: ${{ github.event.inputs.report_dir || '/reports' }}
         run: |
           curl -f -X POST \
             "http://${EC2_HOST}/secdebt/api/ingest" \
