@@ -95,6 +95,7 @@ jobs:
               --name securevault_secure_app \
               --network securevault-secure-net \
               -p 80:8000 \
+              -v /home/ubuntu/secdebt-reports:/reports \
               -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
