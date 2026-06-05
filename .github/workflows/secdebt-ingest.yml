@@ -1,0 +1,59 @@
+name: SecDebt-Optimizer Ingest
+
+# Runs AFTER all scanning workflows complete and reports are uploaded.
+# Calls the /secdebt/api/ingest endpoint on the running EC2 instance
+# so debt scores get updated on every push.
+
+on:
+  # Keep this manual until the /secdebt/api/ingest endpoint exists in the app.
+  workflow_dispatch:
+    inputs:
+      report_dir:
+        description: "Directory containing report files on the EC2 instance"
+        default: "/reports"
+        required: false
+
+jobs:
+  ingest-secdebt:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout (to get commit SHA)
+        uses: actions/checkout@v4
+
+      - name: Trigger SecDebt Ingest via API
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_SECURE }}
+          SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          REPORT_DIR: ${{ github.event.inputs.report_dir || '/reports' }}
+        run: |
+          HOST="$(printf '%s' "$EC2_HOST" | xargs)"
+
+          if [ -z "$HOST" ] || [ -z "$SECDEBT_TOKEN" ]; then
+            echo "EC2_HOST_SECURE or SECDEBT_INGEST_TOKEN is missing. Skipping SecDebt ingest."
+            exit 0
+          fi
+
+          curl -f -X POST \
+            "http://${HOST}/secdebt/api/ingest" \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
+            -d "{
+              \"report_dir\": \"${REPORT_DIR}\",
+              \"commit_sha\": \"${COMMIT_SHA}\",
+              \"branch\": \"${BRANCH}\",
+              \"triggered_by\": \"github-actions\"
+            }" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10 || true
+
+      - name: Report ingest summary
+        if: always()
+        run: |
+          echo "## SecDebt-Optimizer Ingest" >> $GITHUB_STEP_SUMMARY
+          echo "Manual SecDebt ingest workflow completed. Check logs for API response details." >> $GITHUB_STEP_SUMMARY
+          echo "Dashboard URL, if implemented: http://${{ secrets.EC2_HOST_SECURE }}/secdebt" >> $GITHUB_STEP_SUMMARY

@@ -261,27 +261,7 @@ jobs:
               -e POSTGRES_PASSWORD=securevault \
               postgres:14
 
-            for attempt in $(seq 1 30); do
-              if sudo docker exec -e PGPASSWORD=securevault securevault_secure_db \
-                pg_isready -h localhost -p 5432 -U securevault -d securevault; then
-                echo "PostgreSQL is ready for migration checks."
-                break
-              fi
-
-              echo "Waiting for PostgreSQL before migration checks (attempt $attempt/30)"
-              sleep 2
-            done
-
-            CURRENT_REVISION=$(sudo docker exec -e PGPASSWORD=securevault securevault_secure_db \
-              psql -U securevault -d securevault -tAc "SELECT version_num FROM alembic_version LIMIT 1;" 2>/dev/null | xargs || true)
-
-            echo "Current Alembic revision: ${CURRENT_REVISION:-none}"
-
-            if [ "$CURRENT_REVISION" = "76c56f34b481" ]; then
-              echo "Detected legacy Alembic revision 76c56f34b481. Stamping database to 167fb89423c0."
-              sudo docker exec -e PGPASSWORD=securevault securevault_secure_db \
-                psql -U securevault -d securevault -c "UPDATE alembic_version SET version_num = '167fb89423c0' WHERE version_num = '76c56f34b481';"
-            fi
+            sleep 15
 
             sudo docker run -d \
               --name securevault_secure_app \
