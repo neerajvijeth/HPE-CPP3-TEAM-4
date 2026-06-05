@@ -52,7 +52,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "odc-reports/dependency-check-report.json"
-          target: "/opt/securevault/"
+          target: "/home/ubuntu/secdebt-reports/"
         continue-on-error: true
 
       - name: Generate Security Dashboard Summary
