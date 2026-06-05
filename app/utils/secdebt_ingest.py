@@ -86,6 +86,9 @@ def ingest_reports(
     # --- Step 1: Parse all available report files ---
     for tool, filename in REPORT_FILES.items():
         path = os.path.join(report_dir, filename)
+        if not os.path.exists(path):
+            logger.info("Skipping %s report (not found)", tool)
+            continue
         parser = PARSERS[tool]
         try:
             findings = parser(path)
