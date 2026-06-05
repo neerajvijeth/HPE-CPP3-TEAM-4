@@ -31,7 +31,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "bandit-report.txt"
-          target: "/opt/securevault/"
+          target: "/home/ubuntu/secdebt-reports/"
         continue-on-error: true   # don't fail the scan if upload fails
       - name: Generate Security Dashboard Summary
         if: always()
