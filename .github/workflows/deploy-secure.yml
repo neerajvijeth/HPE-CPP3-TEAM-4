@@ -67,7 +67,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
 
           script: |
-
+          
+            sudo mkdir -p /home/ubuntu/secdebt-reports
             sudo docker pull sanudocker11/secure_vault_secure:latest
 
             sudo docker stop securevault_secure_app || true
