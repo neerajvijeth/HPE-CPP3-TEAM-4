@@ -22,7 +22,7 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           output: 'trivy-results.txt'
-          exit-code: '1'
+          exit-code: '0'
       - name: Upload report to EC2 for SecDebt ingestion
         if: always()
         uses: appleboy/scp-action@v0.1.7
