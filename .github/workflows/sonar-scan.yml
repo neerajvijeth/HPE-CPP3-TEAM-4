@@ -1,9 +1,9 @@
 name: SonarQube Scan
 on:
   push:
-    branches: ['devsecops-setup1', 'securevault-fixed']
+    branches: ['devsecops-setup1', 'securevault-fixed','secdebt-integration']
   pull_request:
-    branches: ['devsecops-setup1', 'securevault-fixed']
+    branches: ['devsecops-setup1', 'securevault-fixed','secdebt-integration']
   workflow_dispatch:
 jobs:
   sonarcloud:
