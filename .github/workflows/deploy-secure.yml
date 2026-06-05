@@ -302,7 +302,7 @@ jobs:
               exit 1
             fi
 
-  zap-dast:
+  dast-target-check:
     needs: deploy-ec2-secure
     runs-on: ubuntu-latest
     steps:
@@ -332,11 +332,97 @@ jobs:
           echo "Application did not become reachable in time"
           exit 1
 
-      - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.15.0
+  nikto-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run Nikto scan with mounted report
+        run: |
+          mkdir -p dast-reports/nikto
+          docker run --rm \
+            -v "$PWD/dast-reports/nikto:/reports" \
+            sullo/nikto:latest \
+            -h "$EC2_TARGET_URL" \
+            -nointeractive \
+            -timeout 10 \
+            -maxtime 10m \
+            -Format xml \
+            -output /reports/nikto-report.xml || true
+
+      - name: Upload Nikto Report
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          target: ${{ env.EC2_TARGET_URL }}
-          cmd_options: "-a"
-          allow_issue_writing: false
-          artifact_name: zap-baseline-report
+          name: nikto-dast-report
+          path: dast-reports/nikto/
+
+  nuclei-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run Nuclei scan
+        run: |
+          mkdir -p dast-reports/nuclei
+          docker run --rm \
+            -v "$PWD/dast-reports/nuclei:/reports" \
+            projectdiscovery/nuclei:latest \
+            -u "$EC2_TARGET_URL" \
+            -rate-limit 5 \
+            -c 5 \
+            -retries 1 \
+            -timeout 5 \
+            -severity low,medium,high,critical \
+            -jsonl \
+            -o /reports/nuclei-report.jsonl || true
+
+      - name: Upload Nuclei Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nuclei-dast-report
+          path: dast-reports/nuclei/
+
+  zap-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run OWASP ZAP baseline scan
+        run: |
+          mkdir -p dast-reports/zap
+          docker run --rm \
+            -v "$PWD/dast-reports/zap:/zap/wrk/:rw" \
+            zaproxy/zap-stable \
+            zap-baseline.py \
+            -t "$EC2_TARGET_URL" \
+            -m 3 \
+            -T 10 \
+            -a \
+            -r zap-report.html \
+            -J zap-report.json \
+            -x zap-report.xml \
+            -w zap-report.md || true
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-dast-report
+          path: dast-reports/zap/
