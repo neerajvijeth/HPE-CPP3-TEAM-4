@@ -1,42 +1,58 @@
 name: Bandit Scan
+
 on:
-  push:
-    branches: ['devsecops-setup1', 'securevault-fixed','secdebt-integration']
-  pull_request:
-    branches: ['devsecops-setup1', 'securevault-fixed','secdebt-integration']
-  workflow_dispatch:
+push:
+branches:
+- devsecops-setup1
+- securevault-fixed
+- secdebt-integration
+
+pull_request:
+branches:
+- devsecops-setup1
+- securevault-fixed
+- secdebt-integration
+
+workflow_dispatch:
+
 jobs:
-  bandit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install bandit
-      - name: Run Bandit
-        run: |
-          bandit -r app/ -ll --exit-zero | tee bandit-report.txt
-      - name: Upload report to EC2 for SecDebt ingestion
-        # Copies bandit-report.txt to /opt/securevault/ on the EC2 instance
-        # so the SecDebt ingest workflow can read it.
-        if: always()
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST_SECURE }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "bandit-report.txt"
-          target: "/home/ubuntu/secdebt-reports/"
-        continue-on-error: true   # don't fail the scan if upload fails
-      - name: Generate Security Dashboard Summary
-        if: always()
-        run: |
-          echo "## 🛡️ Bandit Scan Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat bandit-report.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+bandit:
+runs-on: ubuntu-latest
+
+````
+steps:
+  - uses: actions/checkout@v4
+
+  - name: Setup Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.11"
+
+  - name: Install dependencies
+    run: |
+      pip install -r requirements.txt
+      pip install bandit
+
+  - name: Run Bandit
+    run: |
+      bandit -r app/ -ll --exit-zero | tee bandit-report.txt
+
+  - name: Upload report to EC2 for SecDebt ingestion
+    if: always()
+    uses: appleboy/scp-action@v0.1.7
+    with:
+      host: ${{ secrets.EC2_HOST_SECURE }}
+      username: ${{ secrets.EC2_USER }}
+      key: ${{ secrets.EC2_SSH_KEY }}
+      source: "bandit-report.txt"
+      target: "/home/ubuntu/secdebt-reports/"
+    continue-on-error: true
+
+  - name: Generate Security Dashboard Summary
+    if: always()
+    run: |
+      echo "## 🛡️ Bandit Scan Results" >> $GITHUB_STEP_SUMMARY
+      echo '```' >> $GITHUB_STEP_SUMMARY
+      cat bandit-report.txt >> $GITHUB_STEP_SUMMARY
+      echo '```' >> $GITHUB_STEP_SUMMARY
+````
