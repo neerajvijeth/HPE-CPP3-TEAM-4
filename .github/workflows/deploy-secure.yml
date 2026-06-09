@@ -1,4 +1,4 @@
-name: SecureVault Secure CI/CD Deployment
+name: SecureVault Secure DevSecOps Pipeline
 
 on:
   push:
@@ -6,81 +6,303 @@ on:
       - devsecops-setup1
       - securevault-fixed
       - secdebt-integration
-
+  pull_request:
+    branches:
+      - devsecops-setup1
+      - securevault-fixed
+      - secdebt-integration
   workflow_dispatch:
-
+  
 jobs:
-  docker-security-scan:
+  pytest:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install pytest pytest-cov
+      - name: Run Unit Tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          pytest tests_fixed/ -c pytest_fixed.ini -v --tb=short | tee pytest-report.txt
+      - name: Generate Test Summary
+        if: always()
+        run: |
+          echo "## Pytest Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "pytest-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat pytest-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Pytest report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
 
-      - name: Run Trivy Filesystem Scan
+  pylint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pylint
+      - name: Run Pylint
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          pylint app/ --fail-under=7 --ignore=migrations | tee pylint-report.txt
+      - name: Generate Lint Summary
+        if: always()
+        run: |
+          echo "## Pylint Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "pylint-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat pylint-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Pylint report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "pylint-report.txt"
+          target: "/home/ubuntu/secdebt-reports/"
+        continue-on-error: true
+
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install bandit
+      - name: Run Bandit
+        run: |
+          set -o pipefail
+          bandit -r app/ -ll | tee bandit-report.txt
+      - name: Upload report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "bandit-report.txt"
+          target: "/home/ubuntu/secdebt-reports/"
+        continue-on-error: true
+      - name: Generate Bandit Summary
+        if: always()
+        run: |
+          echo "## Bandit Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "bandit-report.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat bandit-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Bandit report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image for Trivy
+        run: |
+          docker build -t securevault_secure:${{ github.sha }} .
+      - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: fs
-          scan-ref: .
+          image-ref: securevault_secure:${{ github.sha }}
           format: table
-          exit-code: 0
+          vuln-type: os,library
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          output: trivy-results.txt
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Generate Trivy Summary
+        if: always()
+        run: |
+          echo "## Trivy Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f "trivy-results.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Trivy report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload Trivy Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.txt
+
+      - name: Upload report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "trivy-results.txt"
+          target: "/home/ubuntu/secdebt-reports/"
+        continue-on-error: true
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache NVD Database
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/odc-data
+          key: ${{ runner.os }}-odc-nvd
+          restore-keys: |
+            ${{ runner.os }}-odc-
+      - name: Create Directories
+        run: |
+          mkdir -p odc-reports
+          mkdir -p odc-data
+          chmod 777 odc-reports
+          chmod 777 odc-data
+      - name: Run OWASP Dependency-Check
+        run: |
+          docker run --rm -u root \
+            -v ${{ github.workspace }}:/src \
+            -v ${{ github.workspace }}/odc-reports:/report \
+            -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+            owasp/dependency-check:latest \
+            --project "SecureVault-Secure" \
+            --scan /src \
+            --format ALL \
+            --out /report \
+            --enableExperimental \
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+      - name: Generate Dependency-Check Summary
+        if: always()
+        run: |
+          if [ -f "odc-reports/dependency-check-report.json" ]; then
+            TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
+            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
+            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
+            echo "- Total dependencies scanned: $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
+            echo "- Vulnerable dependencies found: $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
+            echo "Report generation failed. Check logs." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OWASP-Dependency-Check-Report
+          path: odc-reports/dependency-check-report.html
+
+      - name: Upload JSON report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "odc-reports/dependency-check-report.json"
+          target: "/home/ubuntu/secdebt-reports/"
+        continue-on-error: true
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+      # - name: Check SonarQube Quality Gate
+      #   uses: sonarsource/sonarqube-quality-gate-action@master
+      #   timeout-minutes: 5
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Generate Sonar Summary
+        if: always()
+        run: |
+          echo "## SonarQube Scan" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    needs: docker-security-scan
+    if: github.event_name == 'push' &&
+      (github.ref == 'refs/heads/devsecops-setup1' ||
+       github.ref == 'refs/heads/complete_deploy_runtime')
+    needs:
+      - pytest
+      - pylint
+      - bandit
+      - trivy
+      - dependency-check
+      - sonarcloud
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Build Docker Image
         run: |
           docker build -t sanudocker11/secure_vault_secure:latest .
-
-      - name: Scan Docker Image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: sanudocker11/secure_vault_secure:latest
-          format: table
-          exit-code: 0
-
       - name: Push Docker Image
         run: |
           docker push sanudocker11/secure_vault_secure:latest
 
   deploy-ec2-secure:
     needs: docker-build-push
+    if: github.event_name == 'push' &&
+      (github.ref == 'refs/heads/devsecops-setup1' ||
+       github.ref == 'refs/heads/complete_deploy_runtime')
     runs-on: ubuntu-latest
-
     steps:
-      - name: Deploy SecureVault to EC2
+      - name: Deploy to Secure EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST_SECURE }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-
           script: |
-          
             sudo mkdir -p /home/ubuntu/secdebt-reports
             sudo docker pull sanudocker11/secure_vault_secure:latest
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
 
-            sudo docker stop securevault_secure_db || true
-            sudo docker rm securevault_secure_db || true
-
             sudo docker network create securevault-secure-net || true
 
             sudo docker volume create securevault_secure_data || true
 
+            sudo docker start securevault_secure_db || \
             sudo docker run -d \
               --name securevault_secure_db \
               --network securevault-secure-net \
@@ -106,3 +328,134 @@ jobs:
             sleep 20
 
             sudo docker ps
+
+            if ! sudo docker ps --filter "name=securevault_secure_app" --filter "status=running" --format '{{.Names}}' | grep -q '^securevault_secure_app$'; then
+              echo "securevault_secure_app is not running after deployment"
+              sudo docker logs securevault_secure_app || true
+              exit 1
+            fi
+
+  dast-target-check:
+    needs: deploy-ec2-secure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Normalize ZAP target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          if [ -z "$HOST" ]; then
+            echo "EC2_HOST_SECURE is empty after trimming."
+            exit 1
+          fi
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Wait for deployed app to become reachable
+        run: |
+          TARGET_URL="${EC2_TARGET_URL}"
+
+          for attempt in $(seq 1 12); do
+            if curl --silent --show-error --fail --max-time 10 "$TARGET_URL" > /dev/null; then
+              echo "Application is reachable at $TARGET_URL"
+              exit 0
+            fi
+
+            echo "Waiting for application at $TARGET_URL (attempt $attempt/12)"
+            sleep 10
+          done
+
+          echo "Application did not become reachable in time"
+          exit 1
+
+  nikto-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run Nikto scan with mounted report
+        run: |
+          mkdir -p dast-reports/nikto
+          docker run --rm \
+            -v "$PWD/dast-reports/nikto:/reports" \
+            sullo/nikto:latest \
+            -h "$EC2_TARGET_URL" \
+            -nointeractive \
+            -timeout 10 \
+            -maxtime 10m \
+            -Format xml \
+            -output /reports/nikto-report.xml || true
+
+      - name: Upload Nikto Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nikto-dast-report
+          path: dast-reports/nikto/
+
+  nuclei-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run Nuclei scan
+        run: |
+          mkdir -p dast-reports/nuclei
+          docker run --rm \
+            -v "$PWD/dast-reports/nuclei:/reports" \
+            projectdiscovery/nuclei:latest \
+            -u "$EC2_TARGET_URL" \
+            -rate-limit 5 \
+            -c 5 \
+            -retries 1 \
+            -timeout 5 \
+            -severity low,medium,high,critical \
+            -jsonl \
+            -o /reports/nuclei-report.jsonl || true
+
+      - name: Upload Nuclei Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nuclei-dast-report
+          path: dast-reports/nuclei/
+
+  zap-dast:
+    needs: dast-target-check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Normalize target URL
+        run: |
+          HOST="$(printf '%s' '${{ secrets.EC2_HOST_SECURE }}' | xargs)"
+          echo "EC2_TARGET_URL=http://${HOST}" >> "$GITHUB_ENV"
+
+      - name: Run OWASP ZAP baseline scan
+        run: |
+          mkdir -p dast-reports/zap
+          docker run --rm \
+            -v "$PWD/dast-reports/zap:/zap/wrk/:rw" \
+            zaproxy/zap-stable \
+            zap-baseline.py \
+            -t "$EC2_TARGET_URL" \
+            -m 3 \
+            -T 10 \
+            -a \
+            -r zap-report.html \
+            -J zap-report.json \
+            -x zap-report.xml \
+            -w zap-report.md || true
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-dast-report
+          path: dast-reports/zap/
