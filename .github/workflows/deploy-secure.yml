@@ -365,6 +365,7 @@ jobs:
       - name: Run Nuclei scan
         run: |
           mkdir -p dast-reports/nuclei
+          chmod 777 dast-reports/nuclei
 
           docker run --rm \
             projectdiscovery/nuclei:latest \
@@ -411,6 +412,8 @@ jobs:
       - name: Run OWASP ZAP baseline scan
         run: |
           mkdir -p dast-reports/zap
+          chmod 777 dast-reports/zap
+
           docker run --rm \
             -v "$PWD/dast-reports/zap:/zap/wrk/:rw" \
             zaproxy/zap-stable \
@@ -422,7 +425,14 @@ jobs:
             -r zap-report.html \
             -J zap-report.json \
             -x zap-report.xml \
-            -w zap-report.md || true
+            -w zap-report.md \
+            2>&1 | tee dast-reports/zap/zap-scan.log || true
+
+          if [ -s dast-reports/zap/zap-report.html ] || [ -s dast-reports/zap/zap-report.json ] || [ -s dast-reports/zap/zap-report.xml ]; then
+            echo "ZAP completed and generated report files." | tee dast-reports/zap/zap-summary.txt
+          else
+            echo "ZAP did not generate report files. Check zap-scan.log." | tee dast-reports/zap/zap-summary.txt
+          fi
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
