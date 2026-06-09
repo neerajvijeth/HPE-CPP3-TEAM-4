@@ -384,6 +384,7 @@ jobs:
             -o /reports/nuclei-report.jsonl \
             2>&1 | tee dast-reports/nuclei/nuclei-scan.log || true
 
+
           sudo chmod -R a+rwX dast-reports/nuclei || true
 
           if [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
