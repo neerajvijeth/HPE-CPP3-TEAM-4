@@ -325,7 +325,10 @@ jobs:
       - name: Run Nikto scan with mounted report
         run: |
           mkdir -p dast-reports/nikto
+          chmod 777 dast-reports/nikto
+
           docker run --rm \
+            --user root \
             -v "$PWD/dast-reports/nikto:/reports" \
             ghcr.io/sullo/nikto:latest \
             -h "$EC2_TARGET_URL" \
@@ -333,7 +336,14 @@ jobs:
             -timeout 10 \
             -maxtime 10m \
             -Format xml \
-            -output /reports/nikto-report.xml || true
+            -output /reports/nikto-report.xml \
+            2>&1 | tee dast-reports/nikto/nikto-scan.log || true
+
+          if [ -s dast-reports/nikto/nikto-report.xml ]; then
+            echo "Nikto completed and generated nikto-report.xml." | tee dast-reports/nikto/nikto-summary.txt
+          else
+            echo "Nikto did not generate nikto-report.xml. Check nikto-scan.log." | tee dast-reports/nikto/nikto-summary.txt
+          fi
 
       - name: Upload Nikto Report
         uses: actions/upload-artifact@v4
