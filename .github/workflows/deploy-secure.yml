@@ -225,9 +225,13 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build Docker Image
         run: |
-          docker build -t sanudocker11/secure_vault_secure:latest .
+          docker build \
+            -t sanudocker11/secure_vault_secure:${{ github.sha }} \
+            -t sanudocker11/secure_vault_secure:latest \
+            .
       - name: Push Docker Image
         run: |
+          docker push sanudocker11/secure_vault_secure:${{ github.sha }}
           docker push sanudocker11/secure_vault_secure:latest
 
   deploy-ec2-secure:
@@ -242,7 +246,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            sudo docker pull sanudocker11/secure_vault_secure:latest
+            sudo docker pull sanudocker11/secure_vault_secure:${{ github.sha }}
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
@@ -270,7 +274,7 @@ jobs:
               -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
-              sanudocker11/secure_vault_secure:latest
+              sanudocker11/secure_vault_secure:${{ github.sha }}
 
             sleep 20
 
@@ -327,6 +331,7 @@ jobs:
           mkdir -p dast-reports/nikto
           chmod 777 dast-reports/nikto
 
+          set +e
           docker run --rm \
             --user root \
             -v "$PWD/dast-reports/nikto:/reports" \
@@ -337,12 +342,22 @@ jobs:
             -maxtime 10m \
             -Format xml \
             -output /reports/nikto-report.xml \
-            2>&1 | tee dast-reports/nikto/nikto-scan.log || true
+            2>&1 | tee dast-reports/nikto/nikto-scan.log
+          NIKTO_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          sudo chmod -R a+rwX dast-reports/nikto || true
 
           if [ -s dast-reports/nikto/nikto-report.xml ]; then
             echo "Nikto completed and generated nikto-report.xml." | tee dast-reports/nikto/nikto-summary.txt
           else
             echo "Nikto did not generate nikto-report.xml. Check nikto-scan.log." | tee dast-reports/nikto/nikto-summary.txt
+          fi
+
+          if [ "$NIKTO_EXIT" -ne 0 ] || grep -q "<item" dast-reports/nikto/nikto-report.xml 2>/dev/null; then
+            echo "fail" > dast-reports/nikto/nikto-status.txt
+          else
+            echo "pass" > dast-reports/nikto/nikto-status.txt
           fi
 
       - name: Upload Nikto Report
@@ -371,6 +386,7 @@ jobs:
             projectdiscovery/nuclei:latest \
             -version | tee dast-reports/nuclei/nuclei-version.txt || true
 
+          set +e
           docker run --rm \
             -v "$PWD/dast-reports/nuclei:/reports" \
             projectdiscovery/nuclei:latest \
@@ -382,7 +398,12 @@ jobs:
             -severity low,medium,high,critical \
             -jsonl \
             -o /reports/nuclei-report.jsonl \
-            2>&1 | tee dast-reports/nuclei/nuclei-scan.log || true
+            2>&1 | tee dast-reports/nuclei/nuclei-scan.log
+          NUCLEI_EXIT=${PIPESTATUS[0]}
+          set -e
+
+
+          sudo chmod -R a+rwX dast-reports/nuclei || true
 
           if [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
             FINDING_COUNT=$(wc -l < dast-reports/nuclei/nuclei-report.jsonl | xargs)
@@ -390,6 +411,12 @@ jobs:
           else
             touch dast-reports/nuclei/nuclei-report.jsonl
             echo "Nuclei completed but produced no findings for $EC2_TARGET_URL." | tee dast-reports/nuclei/nuclei-summary.txt
+          fi
+
+          if [ "$NUCLEI_EXIT" -ne 0 ] || [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
+            echo "fail" > dast-reports/nuclei/nuclei-status.txt
+          else
+            echo "pass" > dast-reports/nuclei/nuclei-status.txt
           fi
 
       - name: Upload Nuclei Report
@@ -414,6 +441,7 @@ jobs:
           mkdir -p dast-reports/zap
           chmod 777 dast-reports/zap
 
+          set +e
           docker run --rm \
             -v "$PWD/dast-reports/zap:/zap/wrk/:rw" \
             zaproxy/zap-stable \
@@ -426,12 +454,22 @@ jobs:
             -J zap-report.json \
             -x zap-report.xml \
             -w zap-report.md \
-            2>&1 | tee dast-reports/zap/zap-scan.log || true
+            2>&1 | tee dast-reports/zap/zap-scan.log
+          ZAP_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          sudo chmod -R a+rwX dast-reports/zap || true
 
           if [ -s dast-reports/zap/zap-report.html ] || [ -s dast-reports/zap/zap-report.json ] || [ -s dast-reports/zap/zap-report.xml ]; then
             echo "ZAP completed and generated report files." | tee dast-reports/zap/zap-summary.txt
           else
             echo "ZAP did not generate report files. Check zap-scan.log." | tee dast-reports/zap/zap-summary.txt
+          fi
+
+          if [ "$ZAP_EXIT" -ne 0 ]; then
+            echo "fail" > dast-reports/zap/zap-status.txt
+          else
+            echo "pass" > dast-reports/zap/zap-status.txt
           fi
 
       - name: Upload ZAP Report
@@ -440,3 +478,133 @@ jobs:
         with:
           name: zap-dast-report
           path: dast-reports/zap/
+
+  dast-release-gate:
+    needs:
+      - dast-target-check
+      - nikto-dast
+      - nuclei-dast
+      - zap-dast
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DAST artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: dast-artifacts
+
+      - name: Evaluate DAST gate
+        env:
+          TARGET_CHECK_RESULT: ${{ needs.dast-target-check.result }}
+          NIKTO_JOB_RESULT: ${{ needs.nikto-dast.result }}
+          NUCLEI_JOB_RESULT: ${{ needs.nuclei-dast.result }}
+          ZAP_JOB_RESULT: ${{ needs.zap-dast.result }}
+        run: |
+          mkdir -p dast-gate
+          DAST_FAILED=0
+
+          {
+            echo "DAST target check: $TARGET_CHECK_RESULT"
+            echo "Nikto job: $NIKTO_JOB_RESULT"
+            echo "Nuclei job: $NUCLEI_JOB_RESULT"
+            echo "ZAP job: $ZAP_JOB_RESULT"
+          } | tee dast-gate/dast-gate-summary.txt
+
+          if [ "$TARGET_CHECK_RESULT" != "success" ]; then
+            echo "DAST target check failed or was skipped." | tee -a dast-gate/dast-gate-summary.txt
+            DAST_FAILED=1
+          fi
+
+          for status_file in \
+            dast-artifacts/nikto-dast-report/nikto-status.txt \
+            dast-artifacts/nuclei-dast-report/nuclei-status.txt \
+            dast-artifacts/zap-dast-report/zap-status.txt
+          do
+            if [ ! -f "$status_file" ]; then
+              echo "Missing DAST status file: $status_file" | tee -a dast-gate/dast-gate-summary.txt
+              DAST_FAILED=1
+              continue
+            fi
+
+            STATUS="$(cat "$status_file" | xargs)"
+            echo "$status_file: $STATUS" | tee -a dast-gate/dast-gate-summary.txt
+
+            if [ "$STATUS" != "pass" ]; then
+              DAST_FAILED=1
+            fi
+          done
+
+          echo "DAST_FAILED=$DAST_FAILED" >> "$GITHUB_ENV"
+
+          if [ "$DAST_FAILED" -eq 0 ]; then
+            echo "DAST gate passed. Current image can be promoted to stable." | tee -a dast-gate/dast-gate-summary.txt
+          else
+            echo "DAST gate failed. Current deployment must be rolled back to stable." | tee -a dast-gate/dast-gate-summary.txt
+          fi
+
+      - name: Promote image to stable
+        if: env.DAST_FAILED == '0'
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          docker pull sanudocker11/secure_vault_secure:${{ github.sha }}
+          docker tag sanudocker11/secure_vault_secure:${{ github.sha }} sanudocker11/secure_vault_secure:stable
+          docker push sanudocker11/secure_vault_secure:stable
+
+      - name: Roll back EC2 to stable image
+        if: env.DAST_FAILED == '1'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull sanudocker11/secure_vault_secure:stable
+
+            sudo docker stop securevault_secure_app || true
+            sudo docker rm securevault_secure_app || true
+
+            sudo docker network create securevault-secure-net || true
+            sudo docker volume create securevault_secure_data || true
+
+            sudo docker start securevault_secure_db || \
+            sudo docker run -d \
+              --name securevault_secure_db \
+              --network securevault-secure-net \
+              -v securevault_secure_data:/var/lib/postgresql/data \
+              -e POSTGRES_DB=securevault \
+              -e POSTGRES_USER=securevault \
+              -e POSTGRES_PASSWORD=securevault \
+              postgres:14
+
+            sleep 15
+
+            sudo docker run -d \
+              --name securevault_secure_app \
+              --network securevault-secure-net \
+              -p 80:8000 \
+              -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
+              -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
+              -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
+              sanudocker11/secure_vault_secure:stable
+
+            sleep 20
+
+            if ! sudo docker ps --filter "name=securevault_secure_app" --filter "status=running" --format '{{.Names}}' | grep -q '^securevault_secure_app$'; then
+              echo "Rollback failed: securevault_secure_app is not running after redeploying stable."
+              sudo docker logs securevault_secure_app || true
+              exit 1
+            fi
+
+      - name: Upload DAST gate summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-release-gate-summary
+          path: dast-gate/
+
+      - name: Fail workflow after rollback
+        if: env.DAST_FAILED == '1'
+        run: |
+          echo "DAST gate failed. Rolled back to stable image."
+          exit 1
