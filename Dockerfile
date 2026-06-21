@@ -7,6 +7,7 @@ FROM python:3.11-slim-bookworm AS build
 WORKDIR /opt/securevault
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
@@ -21,9 +22,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt /opt/securevault/requirements.txt
 
-RUN pip install --upgrade pip \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r /opt/securevault/requirements.txt \
-    && pip install gunicorn
+    && pip install --no-cache-dir gunicorn
 
 
 # =========================================================
@@ -39,6 +40,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /opt/securevault
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         libffi8 \
         libssl3 \
@@ -47,6 +49,8 @@ RUN apt-get update \
         curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Create non-root user
 RUN useradd \
