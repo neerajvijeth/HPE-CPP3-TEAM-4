@@ -1,59 +1,57 @@
 name: Trivy Security Scan
 
 on:
-push:
-branches:
-- devsecops-setup1
-- securevault-fixed
-- secdebt-integration
+  push:
+    branches:
+      - devsecops-setup1
+      - securevault-fixed
+      - secdebt-integration
 
-pull_request:
-branches:
-- devsecops-setup1
-- securevault-fixed
-- secdebt-integration
+  pull_request:
+    branches:
+      - devsecops-setup1
+      - securevault-fixed
+      - secdebt-integration
 
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-trivy:
-runs-on: ubuntu-latest
+  trivy:
+    runs-on: ubuntu-latest
 
-````
-steps:
-  - name: Checkout code
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  - name: Build an image from Dockerfile
-    run: |
-      docker build -t securevault:${{ github.sha }} .
+      - name: Build an image from Dockerfile
+        run: |
+          docker build -t securevault:${{ github.sha }} .
 
-  - name: Run Trivy vulnerability scanner
-    uses: aquasecurity/trivy-action@master
-    with:
-      image-ref: 'securevault:${{ github.sha }}'
-      format: 'table'
-      vuln-type: 'os,library'
-      severity: 'CRITICAL,HIGH'
-      output: 'trivy-results.txt'
-      exit-code: '0'
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'securevault:${{ github.sha }}'
+          format: 'table'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-results.txt'
+          exit-code: '0'
 
-  - name: Upload report to EC2 for SecDebt ingestion
-    if: always()
-    uses: appleboy/scp-action@v0.1.7
-    with:
-      host: ${{ secrets.EC2_HOST_SECURE }}
-      username: ${{ secrets.EC2_USER }}
-      key: ${{ secrets.EC2_SSH_KEY }}
-      source: "trivy-results.txt"
-      target: "/home/ubuntu/secdebt-reports/"
-    continue-on-error: true
+      - name: Upload report to EC2 for SecDebt ingestion
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "trivy-results.txt"
+          target: "/home/ubuntu/secdebt-reports/"
+        continue-on-error: true
 
-  - name: Generate Security Dashboard Summary
-    if: always()
-    run: |
-      echo "## 🛡️ Trivy Security Scan Results" >> $GITHUB_STEP_SUMMARY
-      echo '```' >> $GITHUB_STEP_SUMMARY
-      cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
-      echo '```' >> $GITHUB_STEP_SUMMARY
-````
+      - name: Generate Security Dashboard Summary
+        if: always()
+        run: |
+          echo "## 🛡️ Trivy Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
