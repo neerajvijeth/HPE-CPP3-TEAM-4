@@ -22,7 +22,7 @@ def normalize_severity(raw):
 def estimate_reachability(tool, file_path=None):
     if file_path:
         path = file_path.lower()
-        if path.startswith("app/") or "/app/" in path:
+        if path.startswith(("app/", "/app/")) or "/app/" in path:
             return 1.0
         if "test" in path:
             return 0.2
@@ -33,14 +33,7 @@ def estimate_reachability(tool, file_path=None):
     return 0.5
 
 
-def parse_bandit(report_path):
-    findings = []
-    if not os.path.exists(report_path):
-        return findings
-
-    with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
-        content = handle.read()
-
+def _split_bandit_blocks(content):
     blocks = []
     current = []
     for line in content.splitlines():
@@ -52,32 +45,51 @@ def parse_bandit(report_path):
             current.append(line)
     if current:
         blocks.append("\n".join(current))
+    return blocks
 
-    for block in blocks:
+
+def _parse_bandit_heading(first_line):
+    start = first_line.find("[")
+    end = first_line.find("]", start + 1)
+    if start == -1 or end == -1:
+        return None, None
+    return first_line[start + 1:end].strip(), first_line[end + 1:].strip()
+
+
+def _parse_bandit_metadata(block):
+    file_path = None
+    line_number = None
+    severity_value = "MEDIUM"
+
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("severity:"):
+            severity_value = stripped.split(":", 1)[1].strip().split()[0]
+        elif stripped.startswith("Location:"):
+            location_value = stripped.split(":", 1)[1].strip()
+            path_value, separator, line_value = location_value.rpartition(":")
+            if separator and line_value.isdigit():
+                file_path = path_value.strip()
+                line_number = int(line_value)
+
+    return file_path, line_number, severity_value
+
+
+def parse_bandit(report_path):
+    findings = []
+    if not os.path.exists(report_path):
+        return findings
+
+    with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
+        content = handle.read()
+
+    for block in _split_bandit_blocks(content):
         block = block.strip()
-
-        first_line = block.splitlines()[0]
-        start = first_line.find("[")
-        end = first_line.find("]", start + 1)
-        if start == -1 or end == -1:
+        vuln_id, title = _parse_bandit_heading(block.splitlines()[0])
+        if not vuln_id:
             continue
 
-        vuln_id = first_line[start + 1:end].strip()
-        title = first_line[end + 1:].strip()
-        file_path = None
-        line_number = None
-        severity_value = "MEDIUM"
-
-        for line in block.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith("severity:"):
-                severity_value = stripped.split(":", 1)[1].strip().split()[0]
-            elif stripped.startswith("Location:"):
-                location_value = stripped.split(":", 1)[1].strip()
-                path_value, separator, line_value = location_value.rpartition(":")
-                if separator and line_value.isdigit():
-                    file_path = path_value.strip()
-                    line_number = int(line_value)
+        file_path, line_number, severity_value = _parse_bandit_metadata(block)
 
         findings.append({
             "tool": "bandit",
@@ -154,7 +166,7 @@ def parse_trivy(report_path):
             package = columns[1]
             vuln_id = columns[2]
             severity = columns[3]
-            if not (vuln_id.startswith("CVE-") or vuln_id.startswith("GHSA-")):
+            if not vuln_id.startswith(("CVE-", "GHSA-")):
                 continue
 
             findings.append({
