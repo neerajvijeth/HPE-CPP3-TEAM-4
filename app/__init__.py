@@ -14,6 +14,7 @@ def create_app():
     app.config.from_object(Config)
 
     db.init_app(app)
+    from app.models.secdebt import SecDebtFinding, SecDebtScanRun  # noqa: F401
     login_manager.init_app(app)
     migrate.init_app(app, db)
 
@@ -54,11 +55,13 @@ def create_app():
     from app.routes.admin import admin_bp
     from app.routes.profile import profile_bp
     from app.routes.fetcher import fetcher_bp
+    from app.routes.secdebt import secdebt_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(vault_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(fetcher_bp)
+    app.register_blueprint(secdebt_bp)
 
     return app

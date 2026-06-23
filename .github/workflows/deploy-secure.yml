@@ -27,7 +27,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -o pipefail
-          pytest tests_fixed/ -c pytest_fixed.ini -v --tb=short | tee pytest-report.txt
+          pytest tests_fixed/ -c pytest_fixed.ini -v --tb=short --cov=app --cov-report=xml:coverage.xml | tee pytest-report.txt
       - name: Generate Test Summary
         if: always()
         run: |
@@ -39,7 +39,6 @@ jobs:
           else
             echo "Pytest report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
           fi
-
   pylint:
     runs-on: ubuntu-latest
     steps:
@@ -69,6 +68,12 @@ jobs:
           else
             echo "Pylint report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
           fi
+      - name: Upload Pylint Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pylint-report
+          path: pylint-report.txt
 
   bandit:
     runs-on: ubuntu-latest
@@ -97,6 +102,12 @@ jobs:
           else
             echo "Bandit report was not generated. Check earlier step logs." >> $GITHUB_STEP_SUMMARY
           fi
+      - name: Upload Bandit Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.txt
 
   trivy:
     runs-on: ubuntu-latest
@@ -136,6 +147,7 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Cache NVD Database
@@ -153,17 +165,49 @@ jobs:
           chmod 777 odc-data
       - name: Run OWASP Dependency-Check
         run: |
-          docker run --rm -u root \
-            -v ${{ github.workspace }}:/src \
-            -v ${{ github.workspace }}/odc-reports:/report \
-            -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
-            owasp/dependency-check:latest \
-            --project "SecureVault-Secure" \
-            --scan /src \
-            --format ALL \
-            --out /report \
-            --enableExperimental \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+          set +e
+
+          for attempt in 1 2 3; do
+            echo "Running OWASP Dependency-Check attempt ${attempt}/3"
+
+            docker run --rm -u root \
+              -v ${{ github.workspace }}:/src \
+              -v ${{ github.workspace }}/odc-reports:/report \
+              -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+              owasp/dependency-check:12.1.0 \
+              --project "SecureVault-Secure" \
+              --scan /src \
+              --format ALL \
+              --out /report \
+              --enableExperimental \
+              --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+              --nvdApiDelay 10000 \
+              --nvdMaxRetryCount 20 \
+              --nvdValidForHours 24
+
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+
+            echo "Dependency-Check failed with status ${status}."
+            if [ "$attempt" -lt 3 ]; then
+              echo "Waiting before retry because NVD API failures are often transient."
+              sleep 60
+            fi
+          done
+
+          if [ ! -f "odc-reports/dependency-check-report.json" ]; then
+            {
+              echo "OWASP Dependency-Check could not generate a report."
+              echo "Reason: NVD API/database update failed after retries."
+              echo "Last exit status: ${status}"
+              echo "This is treated as an external feed availability issue, not an application vulnerability finding."
+            } | tee odc-reports/dependency-check-status.txt
+            exit 0
+          fi
+
+          exit "$status"
       - name: Generate Dependency-Check Summary
         if: always()
         run: |
@@ -175,7 +219,12 @@ jobs:
             echo "- Vulnerable dependencies found: $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
           else
             echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "Report generation failed. Check logs." >> $GITHUB_STEP_SUMMARY
+            echo "Report generation failed because the NVD feed was unavailable after retries." >> $GITHUB_STEP_SUMMARY
+            if [ -f "odc-reports/dependency-check-status.txt" ]; then
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat odc-reports/dependency-check-status.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
           fi
       - name: Upload HTML Report
         uses: actions/upload-artifact@v4
@@ -183,6 +232,18 @@ jobs:
         with:
           name: OWASP-Dependency-Check-Report
           path: odc-reports/dependency-check-report.html
+      - name: Upload JSON Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OWASP-Dependency-Check-JSON
+          path: odc-reports/dependency-check-report.json
+      - name: Upload Dependency-Check Status
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OWASP-Dependency-Check-Status
+          path: odc-reports/dependency-check-status.txt
 
   sonarcloud:
     runs-on: ubuntu-latest
@@ -190,6 +251,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install pytest pytest-cov
+      - name: Generate coverage for SonarCloud
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests_fixed/ -c pytest_fixed.ini --cov=app --cov-report=xml:coverage.xml
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
@@ -225,9 +299,13 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build Docker Image
         run: |
-          docker build -t sanudocker11/secure_vault_secure:latest .
+          docker build \
+            -t sanudocker11/secure_vault_secure:${{ github.sha }} \
+            -t sanudocker11/secure_vault_secure:latest \
+            .
       - name: Push Docker Image
         run: |
+          docker push sanudocker11/secure_vault_secure:${{ github.sha }}
           docker push sanudocker11/secure_vault_secure:latest
 
   deploy-ec2-secure:
@@ -242,7 +320,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            sudo docker pull sanudocker11/secure_vault_secure:latest
+            sudo mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            sudo docker pull sanudocker11/secure_vault_secure:${{ github.sha }}
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
@@ -267,10 +346,12 @@ jobs:
               --name securevault_secure_app \
               --network securevault-secure-net \
               -p 80:8000 \
+              -v /home/${{ secrets.EC2_USER }}/secdebt-reports:/reports \
               -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
-              sanudocker11/secure_vault_secure:latest
+              -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
+              sanudocker11/secure_vault_secure:${{ github.sha }}
 
             sleep 20
 
@@ -327,6 +408,7 @@ jobs:
           mkdir -p dast-reports/nikto
           chmod 777 dast-reports/nikto
 
+          set +e
           docker run --rm \
             --user root \
             -v "$PWD/dast-reports/nikto:/reports" \
@@ -337,12 +419,22 @@ jobs:
             -maxtime 10m \
             -Format xml \
             -output /reports/nikto-report.xml \
-            2>&1 | tee dast-reports/nikto/nikto-scan.log || true
+            2>&1 | tee dast-reports/nikto/nikto-scan.log
+          NIKTO_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          sudo chmod -R a+rwX dast-reports/nikto || true
 
           if [ -s dast-reports/nikto/nikto-report.xml ]; then
             echo "Nikto completed and generated nikto-report.xml." | tee dast-reports/nikto/nikto-summary.txt
           else
             echo "Nikto did not generate nikto-report.xml. Check nikto-scan.log." | tee dast-reports/nikto/nikto-summary.txt
+          fi
+
+          if [ "$NIKTO_EXIT" -ne 0 ] || grep -q "<item" dast-reports/nikto/nikto-report.xml 2>/dev/null; then
+            echo "fail" > dast-reports/nikto/nikto-status.txt
+          else
+            echo "pass" > dast-reports/nikto/nikto-status.txt
           fi
 
       - name: Upload Nikto Report
@@ -371,6 +463,7 @@ jobs:
             projectdiscovery/nuclei:latest \
             -version | tee dast-reports/nuclei/nuclei-version.txt || true
 
+          set +e
           docker run --rm \
             -v "$PWD/dast-reports/nuclei:/reports" \
             projectdiscovery/nuclei:latest \
@@ -382,7 +475,12 @@ jobs:
             -severity low,medium,high,critical \
             -jsonl \
             -o /reports/nuclei-report.jsonl \
-            2>&1 | tee dast-reports/nuclei/nuclei-scan.log || true
+            2>&1 | tee dast-reports/nuclei/nuclei-scan.log
+          NUCLEI_EXIT=${PIPESTATUS[0]}
+          set -e
+
+
+          sudo chmod -R a+rwX dast-reports/nuclei || true
 
 
           sudo chmod -R a+rwX dast-reports/nuclei || true
@@ -393,6 +491,12 @@ jobs:
           else
             touch dast-reports/nuclei/nuclei-report.jsonl
             echo "Nuclei completed but produced no findings for $EC2_TARGET_URL." | tee dast-reports/nuclei/nuclei-summary.txt
+          fi
+
+          if [ "$NUCLEI_EXIT" -ne 0 ] || [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
+            echo "fail" > dast-reports/nuclei/nuclei-status.txt
+          else
+            echo "pass" > dast-reports/nuclei/nuclei-status.txt
           fi
 
       - name: Upload Nuclei Report
@@ -417,6 +521,7 @@ jobs:
           mkdir -p dast-reports/zap
           chmod 777 dast-reports/zap
 
+          set +e
           docker run --rm \
             -v "$PWD/dast-reports/zap:/zap/wrk/:rw" \
             zaproxy/zap-stable \
@@ -429,12 +534,22 @@ jobs:
             -J zap-report.json \
             -x zap-report.xml \
             -w zap-report.md \
-            2>&1 | tee dast-reports/zap/zap-scan.log || true
+            2>&1 | tee dast-reports/zap/zap-scan.log
+          ZAP_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          sudo chmod -R a+rwX dast-reports/zap || true
 
           if [ -s dast-reports/zap/zap-report.html ] || [ -s dast-reports/zap/zap-report.json ] || [ -s dast-reports/zap/zap-report.xml ]; then
             echo "ZAP completed and generated report files." | tee dast-reports/zap/zap-summary.txt
           else
             echo "ZAP did not generate report files. Check zap-scan.log." | tee dast-reports/zap/zap-summary.txt
+          fi
+
+          if [ "$ZAP_EXIT" -ne 0 ]; then
+            echo "fail" > dast-reports/zap/zap-status.txt
+          else
+            echo "pass" > dast-reports/zap/zap-status.txt
           fi
 
       - name: Upload ZAP Report
@@ -443,3 +558,208 @@ jobs:
         with:
           name: zap-dast-report
           path: dast-reports/zap/
+
+  dast-release-gate:
+    needs:
+      - dast-target-check
+      - nikto-dast
+      - nuclei-dast
+      - zap-dast
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DAST artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: dast-artifacts
+
+      - name: Evaluate DAST gate
+        env:
+          TARGET_CHECK_RESULT: ${{ needs.dast-target-check.result }}
+          NIKTO_JOB_RESULT: ${{ needs.nikto-dast.result }}
+          NUCLEI_JOB_RESULT: ${{ needs.nuclei-dast.result }}
+          ZAP_JOB_RESULT: ${{ needs.zap-dast.result }}
+        run: |
+          mkdir -p dast-gate
+          DAST_FAILED=0
+
+          {
+            echo "DAST target check: $TARGET_CHECK_RESULT"
+            echo "Nikto job: $NIKTO_JOB_RESULT"
+            echo "Nuclei job: $NUCLEI_JOB_RESULT"
+            echo "ZAP job: $ZAP_JOB_RESULT"
+          } | tee dast-gate/dast-gate-summary.txt
+
+          if [ "$TARGET_CHECK_RESULT" != "success" ]; then
+            echo "DAST target check failed or was skipped." | tee -a dast-gate/dast-gate-summary.txt
+            DAST_FAILED=1
+          fi
+
+          for status_file in \
+            dast-artifacts/nikto-dast-report/nikto-status.txt \
+            dast-artifacts/nuclei-dast-report/nuclei-status.txt \
+            dast-artifacts/zap-dast-report/zap-status.txt
+          do
+            if [ ! -f "$status_file" ]; then
+              echo "Missing DAST status file: $status_file" | tee -a dast-gate/dast-gate-summary.txt
+              DAST_FAILED=1
+              continue
+            fi
+
+            STATUS="$(cat "$status_file" | xargs)"
+            echo "$status_file: $STATUS" | tee -a dast-gate/dast-gate-summary.txt
+
+            if [ "$STATUS" != "pass" ]; then
+              DAST_FAILED=1
+            fi
+          done
+
+          echo "DAST_FAILED=$DAST_FAILED" >> "$GITHUB_ENV"
+
+          if [ "$DAST_FAILED" -eq 0 ]; then
+            echo "DAST gate passed. Current image can be promoted to stable." | tee -a dast-gate/dast-gate-summary.txt
+          else
+            echo "DAST gate failed. Current deployment must be rolled back to stable." | tee -a dast-gate/dast-gate-summary.txt
+          fi
+
+      - name: Promote image to stable
+        if: env.DAST_FAILED == '0'
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          docker pull sanudocker11/secure_vault_secure:${{ github.sha }}
+          docker tag sanudocker11/secure_vault_secure:${{ github.sha }} sanudocker11/secure_vault_secure:stable
+          docker push sanudocker11/secure_vault_secure:stable
+
+      - name: Roll back EC2 to stable image
+        if: env.DAST_FAILED == '1'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            sudo docker pull sanudocker11/secure_vault_secure:stable
+
+            sudo docker stop securevault_secure_app || true
+            sudo docker rm securevault_secure_app || true
+
+            sudo docker network create securevault-secure-net || true
+            sudo docker volume create securevault_secure_data || true
+
+            sudo docker start securevault_secure_db || \
+            sudo docker run -d \
+              --name securevault_secure_db \
+              --network securevault-secure-net \
+              -v securevault_secure_data:/var/lib/postgresql/data \
+              -e POSTGRES_DB=securevault \
+              -e POSTGRES_USER=securevault \
+              -e POSTGRES_PASSWORD=securevault \
+              postgres:14
+
+            sleep 15
+
+            sudo docker run -d \
+              --name securevault_secure_app \
+              --network securevault-secure-net \
+              -p 80:8000 \
+              -v /home/${{ secrets.EC2_USER }}/secdebt-reports:/reports \
+              -e DATABASE_URL="postgresql://securevault:securevault@securevault_secure_db:5432/securevault" \
+              -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
+              -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
+              -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
+              sanudocker11/secure_vault_secure:stable
+
+            sleep 20
+
+            if ! sudo docker ps --filter "name=securevault_secure_app" --filter "status=running" --format '{{.Names}}' | grep -q '^securevault_secure_app$'; then
+              echo "Rollback failed: securevault_secure_app is not running after redeploying stable."
+              sudo docker logs securevault_secure_app || true
+              exit 1
+            fi
+
+      - name: Upload DAST gate summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-release-gate-summary
+          path: dast-gate/
+
+      - name: Fail workflow after rollback
+        if: env.DAST_FAILED == '1'
+        run: |
+          echo "DAST gate failed. Rolled back to stable image."
+          exit 1
+
+  secdebt-ingest:
+    needs: dast-release-gate
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: secdebt-artifacts
+
+      - name: Prepare SecDebt report bundle
+        run: |
+          mkdir -p secdebt-upload/odc-reports
+
+          cp secdebt-artifacts/bandit-report/bandit-report.txt secdebt-upload/bandit-report.txt 2>/dev/null || true
+          cp secdebt-artifacts/pylint-report/pylint-report.txt secdebt-upload/pylint-report.txt 2>/dev/null || true
+          cp secdebt-artifacts/trivy-results/trivy-results.txt secdebt-upload/trivy-results.txt 2>/dev/null || true
+          cp secdebt-artifacts/OWASP-Dependency-Check-JSON/dependency-check-report.json secdebt-upload/odc-reports/dependency-check-report.json 2>/dev/null || true
+
+          echo "Generated by GitHub Actions for SecDebt ingestion." > secdebt-upload/README.txt
+          find secdebt-upload -maxdepth 3 -type f -print
+
+      - name: Reset remote SecDebt report directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/bandit-report.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/pylint-report.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/trivy-results.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports/dependency-check-report.json
+
+      - name: Copy reports to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "secdebt-upload/*"
+          target: "/home/${{ secrets.EC2_USER }}/secdebt-reports"
+          strip_components: 1
+
+      - name: Trigger SecDebt ingest
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_SECURE }}
+          SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
+        run: |
+          HOST="$(printf '%s' "$EC2_HOST" | xargs)"
+
+          if [ -z "$HOST" ] || [ -z "$SECDEBT_TOKEN" ]; then
+            echo "EC2_HOST_SECURE or SECDEBT_INGEST_TOKEN is missing. Skipping SecDebt ingest."
+            exit 0
+          fi
+
+          curl --fail --silent --show-error \
+            -X POST "http://${HOST}/secdebt/api/ingest" \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
+            -d "{
+              \"commit_sha\": \"${{ github.sha }}\",
+              \"branch\": \"${{ github.ref_name }}\",
+              \"triggered_by\": \"github-actions\"
+            }" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10

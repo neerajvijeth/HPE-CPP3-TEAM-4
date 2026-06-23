@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}SecDebt Optimizer{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+    <div class="page-header">
+        <h1>SecDebt Optimizer</h1>
+        <p class="page-subtitle">Security debt scoring from CI/CD scan reports.</p>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Debt Score</div>
+            <div class="stat-value">{{ "%.1f"|format(total_score) }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Open Findings</div>
+            <div class="stat-value">{{ total_findings }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Last Ingest</div>
+            <div class="stat-value small">
+                {% if last_run %}{{ last_run.run_at.strftime("%Y-%m-%d %H:%M") }}{% else %}Never{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Fix These First</h2>
+            <a href="{{ url_for('secdebt.history') }}" class="btn btn-secondary">Run History</a>
+        </div>
+        {% if top_findings %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Score</th>
+                    <th>Severity</th>
+                    <th>Tool</th>
+                    <th>Finding</th>
+                    <th>Location</th>
+                    <th>Age</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for finding in top_findings %}
+                <tr>
+                    <td><strong>{{ "%.1f"|format(finding.debt_score) }}</strong></td>
+                    <td>{{ finding.severity }}</td>
+                    <td>{{ finding.tool }}</td>
+                    <td>
+                        <div><strong>{{ finding.title }}</strong></div>
+                        <small>{{ finding.vuln_id }}</small>
+                    </td>
+                    <td>
+                        {% if finding.file_path %}
+                            {{ finding.file_path }}{% if finding.line_number %}:{{ finding.line_number }}{% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ finding.age_days() }} days</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No open findings have been ingested yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Scoring Formula</h2>
+        <p><code>Debt Score = (Severity x 0.5) + (Age x 0.3) + (Reachability x 0.2)</code></p>
+        <p>Findings older than 7 days get 1.5x interest. Findings older than 30 days get 2x interest.</p>
+    </div>
+</section>
+{% endblock %}
