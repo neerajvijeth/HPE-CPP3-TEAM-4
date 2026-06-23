@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}SecDebt History{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+    <div class="page-header">
+        <h1>SecDebt Run History</h1>
+        <p class="page-subtitle">Previous report ingestion runs and debt-score changes.</p>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Ingest Runs</h2>
+            <a href="{{ url_for('secdebt.dashboard') }}" class="btn btn-secondary">Dashboard</a>
+        </div>
+        {% if runs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Run Time</th>
+                    <th>Branch</th>
+                    <th>Commit</th>
+                    <th>Tools</th>
+                    <th>Total</th>
+                    <th>New</th>
+                    <th>Resolved</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td>{{ run.run_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                    <td>{{ run.branch or "-" }}</td>
+                    <td>{{ (run.commit_sha or "-")[:8] }}</td>
+                    <td>{{ run.tools_ingested or "-" }}</td>
+                    <td>{{ run.total_findings }}</td>
+                    <td>{{ run.new_findings }}</td>
+                    <td>{{ run.resolved_findings }}</td>
+                    <td><strong>{{ "%.1f"|format(run.total_debt_score) }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No SecDebt ingestion runs yet.</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
