@@ -9,4 +9,4 @@ python-dotenv==1.1.0
 # FIX A04: bcrypt for password hashing
 bcrypt==4.3.0
 # FIX A04: AES-256 encryption for vault passwords
-cryptography==46.0.5
+cryptography==48.0.1

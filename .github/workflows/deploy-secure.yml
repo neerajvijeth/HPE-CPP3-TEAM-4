@@ -148,6 +148,7 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Cache NVD Database
@@ -165,17 +166,39 @@ jobs:
           chmod 777 odc-data
       - name: Run OWASP Dependency-Check
         run: |
-          docker run --rm -u root \
-            -v ${{ github.workspace }}:/src \
-            -v ${{ github.workspace }}/odc-reports:/report \
-            -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
-            owasp/dependency-check:latest \
-            --project "SecureVault-Secure" \
-            --scan /src \
-            --format ALL \
-            --out /report \
-            --enableExperimental \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+          set +e
+
+          for attempt in 1 2 3; do
+            echo "Running OWASP Dependency-Check attempt ${attempt}/3"
+
+            docker run --rm -u root \
+              -v ${{ github.workspace }}:/src \
+              -v ${{ github.workspace }}/odc-reports:/report \
+              -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+              owasp/dependency-check:12.1.0 \
+              --project "SecureVault-Secure" \
+              --scan /src \
+              --format ALL \
+              --out /report \
+              --enableExperimental \
+              --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+              --nvdApiDelay 10000 \
+              --nvdMaxRetryCount 20 \
+              --nvdValidForHours 24
+
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+
+            echo "Dependency-Check failed with status ${status}."
+            if [ "$attempt" -lt 3 ]; then
+              echo "Waiting before retry because NVD API failures are often transient."
+              sleep 60
+            fi
+          done
+
+          exit "$status"
       - name: Generate Dependency-Check Summary
         if: always()
         run: |
