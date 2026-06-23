@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -42,26 +41,50 @@ def parse_bandit(report_path):
     with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
         content = handle.read()
 
-    for block in re.split(r"(?=^>> Issue:)", content, flags=re.MULTILINE):
+    blocks = []
+    current = []
+    for line in content.splitlines():
+        if line.startswith(">> Issue:"):
+            if current:
+                blocks.append("\n".join(current))
+            current = [line]
+        elif current:
+            current.append(line)
+    if current:
+        blocks.append("\n".join(current))
+
+    for block in blocks:
         block = block.strip()
-        if not block.startswith(">> Issue:"):
+
+        first_line = block.splitlines()[0]
+        start = first_line.find("[")
+        end = first_line.find("]", start + 1)
+        if start == -1 or end == -1:
             continue
 
-        issue = re.search(r"\[(\w+:[^\]]+)\]\s*(.+)", block)
-        if not issue:
-            continue
+        vuln_id = first_line[start + 1:end].strip()
+        title = first_line[end + 1:].strip()
+        file_path = None
+        line_number = None
+        severity_value = "MEDIUM"
 
-        location = re.search(r"Location:\s*(.+?):(\d+)", block)
-        severity = re.search(r"Severity:\s*(\w+)", block, re.IGNORECASE)
-        file_path = location.group(1).strip() if location else None
-        line_number = int(location.group(2)) if location else None
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("severity:"):
+                severity_value = stripped.split(":", 1)[1].strip().split()[0]
+            elif stripped.startswith("Location:"):
+                location_value = stripped.split(":", 1)[1].strip()
+                path_value, separator, line_value = location_value.rpartition(":")
+                if separator and line_value.isdigit():
+                    file_path = path_value.strip()
+                    line_number = int(line_value)
 
         findings.append({
             "tool": "bandit",
-            "vuln_id": issue.group(1).strip(),
-            "title": issue.group(2).strip(),
+            "vuln_id": vuln_id,
+            "title": title,
             "description": "Bandit static-analysis finding",
-            "severity": normalize_severity(severity.group(1) if severity else "MEDIUM"),
+            "severity": normalize_severity(severity_value),
             "reachability": estimate_reachability("bandit", file_path),
             "file_path": file_path,
             "line_number": line_number,
@@ -77,26 +100,40 @@ def parse_pylint(report_path):
     if not os.path.exists(report_path):
         return findings
 
-    pattern = re.compile(r"^(.+?):(\d+):\d+:\s+([EWCRIF]\d+):\s+(.+?)\s+\((\S+)\)")
     severity_by_type = {"F": "HIGH", "E": "HIGH", "W": "MEDIUM", "C": "INFO", "R": "INFO", "I": "INFO"}
 
     with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            match = pattern.match(line.strip())
-            if not match:
+            stripped = line.strip()
+            parts = stripped.split(":", 3)
+            if len(parts) != 4 or not parts[1].isdigit():
                 continue
-            file_path = match.group(1).strip()
-            code = match.group(3).strip()
+
+            file_path = parts[0].strip()
+            line_number = int(parts[1])
+            message_part = parts[3].strip()
+            code_part, separator, description_part = message_part.partition(":")
+            code = code_part.strip()
+            if not separator or len(code) < 2 or code[0] not in severity_by_type:
+                continue
+
+            description = description_part.strip()
+            symbol = ""
+            if description.endswith(")") and "(" in description:
+                description, _, symbol = description.rpartition("(")
+                description = description.strip()
+                symbol = symbol[:-1].strip()
+
             findings.append({
                 "tool": "pylint",
                 "vuln_id": code,
-                "title": f"{code}: {match.group(5).strip()}",
-                "description": match.group(4).strip(),
+                "title": f"{code}: {symbol or 'pylint'}",
+                "description": description,
                 "severity": severity_by_type.get(code[0], "INFO"),
                 "reachability": estimate_reachability("pylint", file_path),
                 "file_path": file_path,
-                "line_number": int(match.group(2)),
-                "raw_snippet": line.strip()[:400],
+                "line_number": line_number,
+                "raw_snippet": stripped[:400],
             })
 
     logger.info("Pylint parsed %d findings", len(findings))
@@ -110,17 +147,22 @@ def parse_trivy(report_path):
 
     with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            match = re.search(r"│\s*(\S.*?)\s*│\s*(CVE-[\d-]+|GHSA-[\w-]+)\s*│\s*(\w+)\s*│", line)
-            if not match:
+            columns = [column.strip() for column in line.split("│")]
+            if len(columns) < 5:
                 continue
-            package = match.group(1).strip()
-            vuln_id = match.group(2).strip()
+
+            package = columns[1]
+            vuln_id = columns[2]
+            severity = columns[3]
+            if not (vuln_id.startswith("CVE-") or vuln_id.startswith("GHSA-")):
+                continue
+
             findings.append({
                 "tool": "trivy",
                 "vuln_id": vuln_id,
                 "title": f"{vuln_id} in {package}",
                 "description": f"Trivy detected {vuln_id} in {package}",
-                "severity": normalize_severity(match.group(3)),
+                "severity": normalize_severity(severity),
                 "reachability": estimate_reachability("trivy"),
                 "file_path": None,
                 "line_number": None,
@@ -139,8 +181,8 @@ def parse_owasp(report_path):
     try:
         with open(report_path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.error("Failed to parse OWASP Dependency-Check report: %s", exc)
+    except (json.JSONDecodeError, OSError):
+        logger.exception("Failed to parse OWASP Dependency-Check report")
         return findings
 
     for dependency in data.get("dependencies", []):

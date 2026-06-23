@@ -741,7 +741,6 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
             -d "{
-              \"report_dir\": \"/reports\",
               \"commit_sha\": \"${{ github.sha }}\",
               \"branch\": \"${{ github.ref_name }}\",
               \"triggered_by\": \"github-actions\"

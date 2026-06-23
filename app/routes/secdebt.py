@@ -88,11 +88,9 @@ def api_ingest():
             abort(403)
 
     data = request.get_json(silent=True) or {}
-    report_dir = data.get("report_dir", "/reports")
 
     try:
         run = ingest_reports(
-            report_dir=report_dir,
             commit_sha=data.get("commit_sha"),
             branch=data.get("branch"),
             triggered_by=data.get("triggered_by", "api"),

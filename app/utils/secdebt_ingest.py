@@ -1,5 +1,5 @@
 import logging
-import os
+from pathlib import Path
 from datetime import UTC, datetime
 
 from app import db
@@ -13,12 +13,13 @@ from app.utils.secdebt_parsers import (
 )
 
 logger = logging.getLogger(__name__)
+DEFAULT_REPORT_DIR = Path("/reports")
 
 REPORT_FILES = {
     "bandit": "bandit-report.txt",
     "pylint": "pylint-report.txt",
     "trivy": "trivy-results.txt",
-    "owasp": os.path.join("odc-reports", "dependency-check-report.json"),
+    "owasp": str(Path("odc-reports") / "dependency-check-report.json"),
     "sonar": "sonar-issues.json",
 }
 
@@ -35,15 +36,24 @@ def _dedup_key(tool, vuln_id, file_path, line_number):
     return f"{tool}::{vuln_id}::{file_path or ''}::{line_number or 0}"
 
 
-def ingest_reports(report_dir=".", commit_sha=None, branch=None, triggered_by="manual"):
+def _safe_report_path(filename):
+    base_dir = DEFAULT_REPORT_DIR.resolve()
+    report_path = (base_dir / filename).resolve()
+    if base_dir not in report_path.parents and report_path != base_dir:
+        raise ValueError("Invalid report path")
+    return report_path
+
+
+def ingest_reports(report_dir=None, commit_sha=None, branch=None, triggered_by="manual"):
+    del report_dir  # Report ingestion intentionally uses only the server-mounted /reports directory.
     now = datetime.now(UTC)
     parsed_findings = []
     tools_ingested = []
 
     for tool, filename in REPORT_FILES.items():
-        report_path = os.path.join(report_dir, filename)
-        if not os.path.exists(report_path):
-            logger.info("SecDebt skipped missing %s report: %s", tool, report_path)
+        report_path = _safe_report_path(filename)
+        if not report_path.exists():
+            logger.info("SecDebt skipped missing %s report", tool)
             continue
 
         findings = PARSERS[tool](report_path)
