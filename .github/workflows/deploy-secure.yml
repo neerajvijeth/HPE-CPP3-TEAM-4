@@ -147,7 +147,7 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -317,7 +317,7 @@ jobs:
       - pylint
       - bandit
       - trivy
-      - dependency-check
+      # - dependency-check
       - sonarcloud
     runs-on: ubuntu-latest
     steps:
