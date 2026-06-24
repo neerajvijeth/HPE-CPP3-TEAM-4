@@ -1,81 +1,63 @@
 name: OWASP Dependency Check Pipeline
 
 on:
-  push:
-    branches: [ "main", "devsecops-setup1", "test/dependency-check" ]
-  pull_request:
-    branches: [ "main", "devsecops-setup1" ]
   workflow_dispatch:
 
 jobs:
-  security-scan:
+  refresh-nvd-cache:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Get week number for cache key
+      - name: Get week number
         id: date
         run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
 
-      - name: Cache NVD Database
-        uses: actions/cache@v4
+      - name: Restore existing NVD cache (if any)
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/odc-data
           key: ${{ runner.os }}-odc-nvd-${{ steps.date.outputs.week }}
           restore-keys: |
             ${{ runner.os }}-odc-nvd-
 
-      - name: Create Directories
+      - name: Create data directory
         run: |
-          mkdir -p odc-reports
           mkdir -p odc-data
-          chmod 777 odc-reports
           chmod 777 odc-data
 
-      - name: Run OWASP Dependency-Check
+      - name: Download Full NVD Database
         run: |
+          echo "🔄 Starting full NVD database download..."
           docker run --rm -u root \
-            -v ${{ github.workspace }}:/src \
-            -v ${{ github.workspace }}/odc-reports:/report \
             -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
             owasp/dependency-check:latest \
-            --project "HPE-CPP3-TEAM-4-CTFd" \
-            --scan /src \
-            --format ALL \
-            --out /report \
-            --enableExperimental \
+            --updateonly \
             --nvdApiKey ${{ secrets.NVD_API_KEY }} \
-            --nvdMaxRetryCount 5 \
-            --nvdApiDelay 6000 \
-            --failOnCVSS 11
-        continue-on-error: true
+            --nvdApiDelay 6000
+          echo "✅ NVD database download complete!"
 
-      - name: Generate Security Dashboard Summary
-        if: always()
-        continue-on-error: true
-        run: |
-          if [ -f "odc-reports/dependency-check-report.json" ]; then
-            TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
-            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
-            echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "The scan completed successfully." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "* **📦 Total Dependencies Scanned:** $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "* **🚨 Vulnerable Dependencies Found:** $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 🔍 Next Steps:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Download the \`OWASP-Dependency-Check-Report\` artifact below." >> $GITHUB_STEP_SUMMARY
-            echo "2. Open the HTML file for detailed CVE descriptions." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **Scan failed to generate a report.** Check the 'Run OWASP Dependency-Check' step logs." >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Upload Report
-        uses: actions/upload-artifact@v4
+      - name: Save NVD Cache
+        uses: actions/cache/save@v4
         if: always()
         with:
-          name: OWASP-Dependency-Check-Report
-          path: odc-reports/
+          path: ${{ github.workspace }}/odc-data
+          key: ${{ runner.os }}-odc-nvd-${{ steps.date.outputs.week }}
+
+      - name: Report Status
+        if: always()
+        run: |
+          if [ -f "odc-data/nvdcve*.h2.mv.db" ] || ls odc-data/*.db 2>/dev/null; then
+            echo "## ✅ NVD Cache Refresh Complete" >> $GITHUB_STEP_SUMMARY
+            echo "The NVD database has been successfully downloaded and cached." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Cache key:** ${{ runner.os }}-odc-nvd-$(date +'%Y-%U')" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "You can now push code and the security scan will use this cache." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ NVD Cache Refresh Failed" >> $GITHUB_STEP_SUMMARY
+            echo "The database download did not complete successfully." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**What to do:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Wait a few hours and try running this workflow again manually" >> $GITHUB_STEP_SUMMARY
+            echo "- NVD API (nvd.nist.gov) may be experiencing downtime" >> $GITHUB_STEP_SUMMARY
+          fi
