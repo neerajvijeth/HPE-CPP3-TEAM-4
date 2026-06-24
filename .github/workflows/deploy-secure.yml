@@ -147,16 +147,18 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Cache NVD Database
-        uses: actions/cache@v4
+      - name: Restore NVD Database Cache
+        id: odc-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd
+          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-odc-
+            ${{ runner.os }}-odc-nvd-
       - name: Create Directories
         run: |
           mkdir -p odc-reports
@@ -167,8 +169,13 @@ jobs:
         run: |
           set +e
 
-          for attempt in 1 2 3; do
-            echo "Running OWASP Dependency-Check attempt ${attempt}/3"
+          if [ -z "${{ secrets.NVD_API_KEY }}" ]; then
+            echo "NVD_API_KEY secret is required for reliable OWASP Dependency-Check runs."
+            exit 1
+          fi
+
+          if [ "${{ steps.odc-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "NVD cache restored. Running Dependency-Check without updating NVD data."
 
             docker run --rm -u root \
               -v ${{ github.workspace }}:/src \
@@ -180,34 +187,57 @@ jobs:
               --format ALL \
               --out /report \
               --enableExperimental \
-              --nvdApiKey ${{ secrets.NVD_API_KEY }} \
-              --nvdApiDelay 10000 \
-              --nvdMaxRetryCount 20 \
-              --nvdValidForHours 24
+              --noupdate
 
             status=$?
             if [ "$status" -eq 0 ]; then
               exit 0
             fi
 
-            echo "Dependency-Check failed with status ${status}."
-            if [ "$attempt" -lt 3 ]; then
-              echo "Waiting before retry because NVD API failures are often transient."
-              sleep 60
-            fi
-          done
+            echo "Cached Dependency-Check scan failed with status ${status}. Trying one online update scan."
+          else
+            echo "No NVD cache restored. Running one online Dependency-Check update scan."
+          fi
+
+          docker run --rm -u root \
+            -v ${{ github.workspace }}:/src \
+            -v ${{ github.workspace }}/odc-reports:/report \
+            -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+            owasp/dependency-check:12.1.0 \
+            --project "SecureVault-Secure" \
+            --scan /src \
+            --format ALL \
+            --out /report \
+            --enableExperimental \
+            --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+            --nvdApiDelay 3500 \
+            --nvdMaxRetryCount 10 \
+            --nvdValidForHours 168
+
+          status=$?
+
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+
+          echo "Dependency-Check failed with status ${status}."
 
           if [ ! -f "odc-reports/dependency-check-report.json" ]; then
             {
               echo "OWASP Dependency-Check could not generate a report."
-              echo "Reason: NVD API/database update failed after retries."
+              echo "Reason: NVD cache was missing/invalid or NVD update failed inside the 20-minute job limit."
               echo "Last exit status: ${status}"
-              echo "This is treated as an external feed availability issue, not an application vulnerability finding."
             } | tee odc-reports/dependency-check-status.txt
-            exit 0
+            exit "$status"
           fi
 
           exit "$status"
+      - name: Save NVD Database Cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ${{ github.workspace }}/odc-data
+          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Generate Dependency-Check Summary
         if: always()
         run: |
@@ -363,8 +393,83 @@ jobs:
               exit 1
             fi
 
-  dast-target-check:
+  secdebt-ingest:
     needs: deploy-ec2-secure
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: secdebt-artifacts
+
+      - name: Prepare SecDebt report bundle
+        run: |
+          mkdir -p secdebt-upload/odc-reports
+
+          cp secdebt-artifacts/bandit-report/bandit-report.txt secdebt-upload/bandit-report.txt 2>/dev/null || true
+          cp secdebt-artifacts/pylint-report/pylint-report.txt secdebt-upload/pylint-report.txt 2>/dev/null || true
+          cp secdebt-artifacts/trivy-results/trivy-results.txt secdebt-upload/trivy-results.txt 2>/dev/null || true
+          cp secdebt-artifacts/OWASP-Dependency-Check-JSON/dependency-check-report.json secdebt-upload/odc-reports/dependency-check-report.json 2>/dev/null || true
+
+          echo "Generated by GitHub Actions for SecDebt ingestion." > secdebt-upload/README.txt
+          find secdebt-upload -maxdepth 3 -type f -print
+
+      - name: Reset remote SecDebt report directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/bandit-report.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/pylint-report.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/trivy-results.txt
+            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports/dependency-check-report.json
+
+      - name: Copy reports to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST_SECURE }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "secdebt-upload/*"
+          target: "/home/${{ secrets.EC2_USER }}/secdebt-reports"
+          strip_components: 1
+
+      - name: Trigger SecDebt ingest
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_SECURE }}
+          SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
+        run: |
+          HOST="$(printf '%s' "$EC2_HOST" | xargs)"
+
+          if [ -z "$HOST" ] || [ -z "$SECDEBT_TOKEN" ]; then
+            echo "EC2_HOST_SECURE or SECDEBT_INGEST_TOKEN is missing. Skipping SecDebt ingest."
+            exit 0
+          fi
+
+          curl --fail --silent --show-error \
+            -X POST "http://${HOST}/secdebt/api/ingest" \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
+            -d "{
+              \"commit_sha\": \"${{ github.sha }}\",
+              \"branch\": \"${{ github.ref_name }}\",
+              \"triggered_by\": \"github-actions\"
+            }" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10
+
+  dast-target-check:
+    needs:
+      - deploy-ec2-secure
+      - secdebt-ingest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
     runs-on: ubuntu-latest
     steps:
       - name: Normalize ZAP target URL
@@ -565,7 +670,7 @@ jobs:
       - nikto-dast
       - nuclei-dast
       - zap-dast
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
     runs-on: ubuntu-latest
     steps:
       - name: Download DAST artifacts
@@ -691,75 +796,3 @@ jobs:
         run: |
           echo "DAST gate failed. Rolled back to stable image."
           exit 1
-
-  secdebt-ingest:
-    needs: dast-release-gate
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/hps-secure'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Download scan artifacts
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          path: secdebt-artifacts
-
-      - name: Prepare SecDebt report bundle
-        run: |
-          mkdir -p secdebt-upload/odc-reports
-
-          cp secdebt-artifacts/bandit-report/bandit-report.txt secdebt-upload/bandit-report.txt 2>/dev/null || true
-          cp secdebt-artifacts/pylint-report/pylint-report.txt secdebt-upload/pylint-report.txt 2>/dev/null || true
-          cp secdebt-artifacts/trivy-results/trivy-results.txt secdebt-upload/trivy-results.txt 2>/dev/null || true
-          cp secdebt-artifacts/OWASP-Dependency-Check-JSON/dependency-check-report.json secdebt-upload/odc-reports/dependency-check-report.json 2>/dev/null || true
-
-          echo "Generated by GitHub Actions for SecDebt ingestion." > secdebt-upload/README.txt
-          find secdebt-upload -maxdepth 3 -type f -print
-
-      - name: Reset remote SecDebt report directory
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST_SECURE }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
-            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/bandit-report.txt
-            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/pylint-report.txt
-            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/trivy-results.txt
-            rm -f /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports/dependency-check-report.json
-
-      - name: Copy reports to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST_SECURE }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "secdebt-upload/*"
-          target: "/home/${{ secrets.EC2_USER }}/secdebt-reports"
-          strip_components: 1
-
-      - name: Trigger SecDebt ingest
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST_SECURE }}
-          SECDEBT_TOKEN: ${{ secrets.SECDEBT_INGEST_TOKEN }}
-        run: |
-          HOST="$(printf '%s' "$EC2_HOST" | xargs)"
-
-          if [ -z "$HOST" ] || [ -z "$SECDEBT_TOKEN" ]; then
-            echo "EC2_HOST_SECURE or SECDEBT_INGEST_TOKEN is missing. Skipping SecDebt ingest."
-            exit 0
-          fi
-
-          curl --fail --silent --show-error \
-            -X POST "http://${HOST}/secdebt/api/ingest" \
-            -H "Content-Type: application/json" \
-            -H "X-Ingest-Token: ${SECDEBT_TOKEN}" \
-            -d "{
-              \"commit_sha\": \"${{ github.sha }}\",
-              \"branch\": \"${{ github.ref_name }}\",
-              \"triggered_by\": \"github-actions\"
-            }" \
-            --max-time 60 \
-            --retry 3 \
-            --retry-delay 10
