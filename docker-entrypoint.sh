@@ -18,10 +18,15 @@ echo "PostgreSQL is ready!"
 
 # Run migrations
 echo "Running database migrations..."
-cd /opt/securevault
-flask db upgrade
 
-echo "Database migrations completed."
+cd /opt/securevault
+
+if flask db upgrade; then
+    echo "Database migrations completed successfully."
+else
+    echo "Database migration failed."
+    exit 1
+fi
 
 echo "Starting SecureVault..."
 
