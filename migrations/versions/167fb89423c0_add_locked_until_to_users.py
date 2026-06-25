@@ -17,8 +17,18 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("users", sa.Column("locked_until", sa.DateTime(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("users")}
+
+    if "locked_until" not in columns:
+        op.add_column("users", sa.Column("locked_until", sa.DateTime(), nullable=True))
 
 
 def downgrade():
-    op.drop_column("users", "locked_until")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("users")}
+
+    if "locked_until" in columns:
+        op.drop_column("users", "locked_until")
