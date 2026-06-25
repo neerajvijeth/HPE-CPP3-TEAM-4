@@ -5,7 +5,6 @@ WORKERS=${WORKERS:-1}
 ACCESS_LOG=${ACCESS_LOG:--}
 ERROR_LOG=${ERROR_LOG:--}
 WORKER_TEMP_DIR=${WORKER_TEMP_DIR:-/dev/shm}
-SKIP_DB_MIGRATION=${SKIP_DB_MIGRATION:-false}
 
 echo "Waiting for PostgreSQL..."
 
@@ -18,12 +17,11 @@ done
 echo "PostgreSQL is ready!"
 
 # Run migrations
-if [[ "$SKIP_DB_MIGRATION" == "true" ]]; then
-    echo "Skipping DB migration"
-else
-    echo "Running database migrations..."
-    cd /opt/securevault && flask db upgrade
-fi
+echo "Running database migrations..."
+cd /opt/securevault
+flask db upgrade
+
+echo "Database migrations completed."
 
 echo "Starting SecureVault..."
 
