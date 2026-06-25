@@ -786,13 +786,23 @@ jobs:
       - name: Roll back EC2 to stable image
         if: env.DAST_FAILED == '1'
         uses: appleboy/ssh-action@v1.0.3
+        continue-on-error: true
         with:
           host: ${{ secrets.EC2_HOST_SECURE }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sudo mkdir -p /home/ubuntu/secdebt-reports
-            sudo docker pull sanudocker11/secure_vault_secure:stable
+
+            # Check if :stable tag exists before attempting rollback
+            if ! sudo docker pull sanudocker11/secure_vault_secure:stable 2>/dev/null; then
+              echo "WARNING: No :stable image exists yet (first pipeline run)."
+              echo "The current deployment will remain running."
+              echo "Fix the DAST findings and push again — once DAST passes, :stable will be created."
+              exit 0
+            fi
+
+            echo "Stable image found. Rolling back..."
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true

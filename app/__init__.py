@@ -38,17 +38,41 @@ def create_app():
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Only send referrer on same origin
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Content Security Policy
+        # Content Security Policy (includes frame-ancestors to complement X-Frame-Options)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:;"
+            "img-src 'self' data:; "
+            "frame-ancestors 'none';"
+        )
+        # Enforce HTTPS (HSTS)
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+        # Restrict browser feature access
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), "
+            "payment=(), usb=(), magnetometer=()"
         )
         # FIX A02: Remove server info header
         response.headers.pop("Server", None)
         return response
+
+    # Custom error handlers to prevent application error disclosure
+    @app.errorhandler(404)
+    def not_found_error(error):
+        return {"error": "Not found"}, 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        db.session.rollback()
+        return {"error": "Internal server error"}, 500
+
+    @app.errorhandler(403)
+    def forbidden_error(error):
+        return {"error": "Forbidden"}, 403
 
     from app.routes.auth import auth_bp
     from app.routes.vault import vault_bp
