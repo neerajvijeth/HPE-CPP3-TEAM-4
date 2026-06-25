@@ -351,7 +351,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sudo mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            echo "Docker usage before cleanup"
+            sudo docker system df || true
+
+            echo "Cleaning unused Docker images and build cache before pulling new image"
+            sudo docker image prune -af || true
+            sudo docker builder prune -af || true
+
             sudo docker pull sanudocker11/secure_vault_secure:${{ github.sha }}
+            sudo docker image inspect sanudocker11/secure_vault_secure:${{ github.sha }} >/dev/null
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
@@ -360,15 +368,20 @@ jobs:
 
             sudo docker volume create securevault_secure_data || true
 
-            sudo docker start securevault_secure_db || \
-            sudo docker run -d \
-              --name securevault_secure_db \
-              --network securevault-secure-net \
-              -v securevault_secure_data:/var/lib/postgresql/data \
-              -e POSTGRES_DB=securevault \
-              -e POSTGRES_USER=securevault \
-              -e POSTGRES_PASSWORD=securevault \
-              postgres:14
+            if sudo docker ps -a --format '{{.Names}}' | grep -q '^securevault_secure_db$'; then
+              echo "Postgres container already exists. Starting it if needed."
+              sudo docker start securevault_secure_db || true
+            else
+              echo "Creating Postgres container."
+              sudo docker run -d \
+                --name securevault_secure_db \
+                --network securevault-secure-net \
+                -v securevault_secure_data:/var/lib/postgresql/data \
+                -e POSTGRES_DB=securevault \
+                -e POSTGRES_USER=securevault \
+                -e POSTGRES_PASSWORD=securevault \
+                postgres:14
+            fi
 
             sleep 15
 
@@ -392,6 +405,11 @@ jobs:
               sudo docker logs securevault_secure_app || true
               exit 1
             fi
+
+            echo "Docker usage after deployment"
+            sudo docker system df || true
+            echo "Disk usage after deployment"
+            df -h
 
   secdebt-ingest:
     needs: deploy-ec2-secure
@@ -742,7 +760,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             sudo mkdir -p /home/${{ secrets.EC2_USER }}/secdebt-reports/odc-reports
+            echo "Docker usage before rollback cleanup"
+            sudo docker system df || true
+
+            echo "Cleaning unused Docker images and build cache before pulling stable image"
+            sudo docker image prune -af || true
+            sudo docker builder prune -af || true
+
             sudo docker pull sanudocker11/secure_vault_secure:stable
+            sudo docker image inspect sanudocker11/secure_vault_secure:stable >/dev/null
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
@@ -750,15 +776,20 @@ jobs:
             sudo docker network create securevault-secure-net || true
             sudo docker volume create securevault_secure_data || true
 
-            sudo docker start securevault_secure_db || \
-            sudo docker run -d \
-              --name securevault_secure_db \
-              --network securevault-secure-net \
-              -v securevault_secure_data:/var/lib/postgresql/data \
-              -e POSTGRES_DB=securevault \
-              -e POSTGRES_USER=securevault \
-              -e POSTGRES_PASSWORD=securevault \
-              postgres:14
+            if sudo docker ps -a --format '{{.Names}}' | grep -q '^securevault_secure_db$'; then
+              echo "Postgres container already exists. Starting it if needed."
+              sudo docker start securevault_secure_db || true
+            else
+              echo "Creating Postgres container."
+              sudo docker run -d \
+                --name securevault_secure_db \
+                --network securevault-secure-net \
+                -v securevault_secure_data:/var/lib/postgresql/data \
+                -e POSTGRES_DB=securevault \
+                -e POSTGRES_USER=securevault \
+                -e POSTGRES_PASSWORD=securevault \
+                postgres:14
+            fi
 
             sleep 15
 
@@ -780,6 +811,11 @@ jobs:
               sudo docker logs securevault_secure_app || true
               exit 1
             fi
+
+            echo "Docker usage after rollback"
+            sudo docker system df || true
+            echo "Disk usage after rollback"
+            df -h
 
       - name: Upload DAST gate summary
         uses: actions/upload-artifact@v4
