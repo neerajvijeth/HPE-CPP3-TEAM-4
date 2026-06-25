@@ -16,46 +16,58 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        "secdebt_findings",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("tool", sa.String(length=50), nullable=False),
-        sa.Column("vuln_id", sa.String(length=200), nullable=False),
-        sa.Column("title", sa.String(length=500), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("severity", sa.String(length=20), nullable=False),
-        sa.Column("reachability", sa.Float(), nullable=True),
-        sa.Column("file_path", sa.String(length=500), nullable=True),
-        sa.Column("line_number", sa.Integer(), nullable=True),
-        sa.Column("first_seen", sa.DateTime(), nullable=False),
-        sa.Column("last_seen", sa.DateTime(), nullable=False),
-        sa.Column("is_resolved", sa.Boolean(), nullable=True),
-        sa.Column("resolved_at", sa.DateTime(), nullable=True),
-        sa.Column("debt_score", sa.Float(), nullable=True),
-        sa.Column("raw_snippet", sa.Text(), nullable=True),
-        sa.Column("commit_sha", sa.String(length=64), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "tool", "vuln_id", "file_path", "line_number", name="uq_secdebt_finding_key"
-        ),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
 
-    op.create_table(
-        "secdebt_scan_runs",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("run_at", sa.DateTime(), nullable=False),
-        sa.Column("commit_sha", sa.String(length=64), nullable=True),
-        sa.Column("branch", sa.String(length=200), nullable=True),
-        sa.Column("tools_ingested", sa.String(length=200), nullable=True),
-        sa.Column("total_findings", sa.Integer(), nullable=True),
-        sa.Column("new_findings", sa.Integer(), nullable=True),
-        sa.Column("resolved_findings", sa.Integer(), nullable=True),
-        sa.Column("total_debt_score", sa.Float(), nullable=True),
-        sa.Column("triggered_by", sa.String(length=100), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-    )
+    if "secdebt_findings" not in tables:
+        op.create_table(
+            "secdebt_findings",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("tool", sa.String(length=50), nullable=False),
+            sa.Column("vuln_id", sa.String(length=200), nullable=False),
+            sa.Column("title", sa.String(length=500), nullable=False),
+            sa.Column("description", sa.Text(), nullable=True),
+            sa.Column("severity", sa.String(length=20), nullable=False),
+            sa.Column("reachability", sa.Float(), nullable=True),
+            sa.Column("file_path", sa.String(length=500), nullable=True),
+            sa.Column("line_number", sa.Integer(), nullable=True),
+            sa.Column("first_seen", sa.DateTime(), nullable=False),
+            sa.Column("last_seen", sa.DateTime(), nullable=False),
+            sa.Column("is_resolved", sa.Boolean(), nullable=True),
+            sa.Column("resolved_at", sa.DateTime(), nullable=True),
+            sa.Column("debt_score", sa.Float(), nullable=True),
+            sa.Column("raw_snippet", sa.Text(), nullable=True),
+            sa.Column("commit_sha", sa.String(length=64), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint(
+                "tool", "vuln_id", "file_path", "line_number", name="uq_secdebt_finding_key"
+            ),
+        )
+
+    if "secdebt_scan_runs" not in tables:
+        op.create_table(
+            "secdebt_scan_runs",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("run_at", sa.DateTime(), nullable=False),
+            sa.Column("commit_sha", sa.String(length=64), nullable=True),
+            sa.Column("branch", sa.String(length=200), nullable=True),
+            sa.Column("tools_ingested", sa.String(length=200), nullable=True),
+            sa.Column("total_findings", sa.Integer(), nullable=True),
+            sa.Column("new_findings", sa.Integer(), nullable=True),
+            sa.Column("resolved_findings", sa.Integer(), nullable=True),
+            sa.Column("total_debt_score", sa.Float(), nullable=True),
+            sa.Column("triggered_by", sa.String(length=100), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+        )
 
 
 def downgrade():
-    op.drop_table("secdebt_scan_runs")
-    op.drop_table("secdebt_findings")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    if "secdebt_scan_runs" in tables:
+        op.drop_table("secdebt_scan_runs")
+    if "secdebt_findings" in tables:
+        op.drop_table("secdebt_findings")
