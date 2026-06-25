@@ -69,26 +69,42 @@ jobs:
           script: |
           
             sudo mkdir -p /home/ubuntu/secdebt-reports
+            echo "Pulling latest image..."
             sudo docker pull sanudocker11/secure_vault_secure:latest
+            sudo docker image inspect sanudocker11/secure_vault_secure:latest >/dev/null
+
+            echo "Current containers"
+            sudo docker ps 
 
             sudo docker stop securevault_secure_app || true
             sudo docker rm securevault_secure_app || true
-
-            sudo docker stop securevault_secure_db || true
-            sudo docker rm securevault_secure_db || true
 
             sudo docker network create securevault-secure-net || true
 
             sudo docker volume create securevault_secure_data || true
 
-            sudo docker run -d \
-              --name securevault_secure_db \
-              --network securevault-secure-net \
-              -v securevault_secure_data:/var/lib/postgresql/data \
-              -e POSTGRES_DB=securevault \
-              -e POSTGRES_USER=securevault \
-              -e POSTGRES_PASSWORD=securevault \
-              postgres:14
+            if sudo docker ps -a --format '{{.Names}}' | grep -q '^securevault_secure_db$'; then
+
+                echo "Postgres container already exists."
+            
+                sudo docker start securevault_secure_db || true
+            
+            else
+            
+                echo "Creating Postgres container..."
+            
+                sudo docker run -d \
+                  --name securevault_secure_db \
+                  --network securevault-secure-net \
+                  -v securevault_secure_data:/var/lib/postgresql/data \
+                  -e POSTGRES_DB=securevault \
+                  -e POSTGRES_USER=securevault \
+                  -e POSTGRES_PASSWORD=securevault \
+                  postgres:14
+            
+                sleep 15
+            
+            fi
 
             sleep 15
 
@@ -104,5 +120,40 @@ jobs:
               sanudocker11/secure_vault_secure:latest
 
             sleep 20
+
+            echo "Checking deployment..."
+
+            if ! sudo docker ps \
+                --filter "name=securevault_secure_app" \
+                --filter "status=running" \
+                --format "{{.Names}}" \
+                | grep -q "^securevault_secure_app$"; then
+            
+                echo "Deployment failed."
+            
+                sudo docker logs securevault_secure_app || true
+            
+                exit 1
+            
+            fi
+            
+            echo "Deployment successful."
+
+            echo "Cleaning old Docker images..."
+
+            sudo docker image prune -af
+            
+            echo "Cleaning build cache..."
+            
+            sudo docker builder prune -af || true
+            
+            echo "Docker usage after cleanup"
+            
+            sudo docker system df
+            
+            echo "Disk usage"
+            
+            df -h
+            echo "Running containers after deployment"
 
             sudo docker ps
