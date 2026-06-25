@@ -402,6 +402,7 @@ jobs:
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
               -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
+              -e SKIP_DB_MIGRATION="true" \
               sanudocker11/secure_vault_secure:latest
 
             sleep 20
@@ -837,6 +838,7 @@ jobs:
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
               -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
+              -e SKIP_DB_MIGRATION="true" \
               sanudocker11/secure_vault_secure:stable
 
             sleep 20
