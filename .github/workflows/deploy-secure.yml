@@ -355,9 +355,15 @@ jobs:
           
             sudo mkdir -p /home/ubuntu/secdebt-reports
             echo "Pulling latest image..."
-            sudo docker pull sanudocker11/secure_vault_secure:latest
-            sudo docker image inspect sanudocker11/secure_vault_secure:latest >/dev/null
 
+            if ! sudo docker pull sanudocker11/secure_vault_secure:latest; then
+                echo "Docker pull failed."
+                exit 1
+            fi
+            
+            echo "Image pulled successfully."
+            
+            sudo docker image inspect sanudocker11/secure_vault_secure:latest >/dev/null
             echo "Current containers"
             sudo docker ps 
 
@@ -402,25 +408,31 @@ jobs:
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
               -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
-              -e SKIP_DB_MIGRATION="true" \
               sanudocker11/secure_vault_secure:latest
 
             sleep 20
 
-            echo "Checking deployment..."
+            echo "Waiting for application..."
 
-            if ! sudo docker ps \
-                --filter "name=securevault_secure_app" \
-                --filter "status=running" \
-                --format "{{.Names}}" \
-                | grep -q "^securevault_secure_app$"; then
+            sleep 20
             
-                echo "Deployment failed."
+            for i in {1..10}; do
+                if curl -f http://localhost >/dev/null 2>&1; then
+                    echo "Application is healthy."
+                    HEALTHY=true
+                    break
+                fi
+            
+                echo "Waiting for application... ($i/10)"
+                sleep 5
+            done
+            
+            if [ "${HEALTHY:-false}" != "true" ]; then
+                echo "Application failed health check."
             
                 sudo docker logs securevault_secure_app || true
             
                 exit 1
-            
             fi
             
             echo "Deployment successful."
@@ -838,7 +850,6 @@ jobs:
               -e SECRET_KEY="${{ secrets.SECRET_KEY_SECURE }}" \
               -e VAULT_ENCRYPTION_KEY="${{ secrets.VAULT_ENCRYPTION_KEY_SECURE }}" \
               -e SECDEBT_INGEST_TOKEN="${{ secrets.SECDEBT_INGEST_TOKEN }}" \
-              -e SKIP_DB_MIGRATION="true" \
               sanudocker11/secure_vault_secure:stable
 
             sleep 20
