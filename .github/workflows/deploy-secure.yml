@@ -5,7 +5,7 @@ on:
     branches:
       - devsecops-setup1
       - securevault-fixed
-      - secdebt-integration
+      - secdebt-integration-backup
 
   workflow_dispatch:
 
