@@ -92,10 +92,11 @@
   <div class="card-header">
     <span>📈 Debt Score Trend (last {{ history|length }} scans)</span>
   </div>
-  <canvas id="debt-chart" height="80" 
+    <canvas id="debt-chart" height="80" 
           data-labels="[{% for r in history %}&quot;{{ r.run_at.strftime('%m/%d %H:%M') }}&quot;{% if not loop.last %},{% endif %}{% endfor %}]" 
           data-scores="[{% for r in history %}{{ r.total_debt_score }}{% if not loop.last %},{% endif %}{% endfor %}]">
   </canvas>
+
 </div>
 {% endif %}
 
@@ -221,7 +222,7 @@
 </div>
 
 <!-- Inline styles scoped to this page -->
-
+<link rel="stylesheet" href="{{ url_for('static', filename='css/secdebt.css') }}">
 
 <script src="{{ url_for('static', filename='js/secdebt.js') }}"></script>
 {% endblock %}

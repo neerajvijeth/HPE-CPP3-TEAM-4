@@ -29,6 +29,8 @@ class SecurityHeadersMiddleware:
                 headers.append(("Cross-Origin-Opener-Policy", "same-origin"))
             if "cross-origin-resource-policy" not in header_names:
                 headers.append(("Cross-Origin-Resource-Policy", "same-origin"))
+            if "permissions-policy" not in header_names:
+                headers.append(("Permissions-Policy", "camera=(), microphone=(), geolocation=()"))
             if "x-xss-protection" not in header_names:
                 headers.append(("X-XSS-Protection", "1; mode=block"))
             if "referrer-policy" not in header_names:
