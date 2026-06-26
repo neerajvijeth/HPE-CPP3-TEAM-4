@@ -1,3 +1,4 @@
+from flask_talisman import Talisman
 from flask import Flask, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -21,6 +22,23 @@ def create_app():
     # FIX A02: Enable CSRF protection on all POST forms
     csrf.init_app(app)
 
+    # FIX A02: Use Flask-Talisman for robust security headers
+    csp = {
+        'default-src': '\'self\'',
+        'script-src': '\'self\'',
+        'style-src': '\'self\'',
+        'font-src': '\'self\'',
+        'img-src': ['\'self\'', 'data:'],
+        'frame-ancestors': '\'self\'',
+        'form-action': '\'self\''
+    }
+    Talisman(app, 
+             content_security_policy=csp, 
+             frame_options='SAMEORIGIN',
+             force_https=False,
+             session_cookie_secure=False)
+
+
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
 
@@ -30,27 +48,11 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    
 
-    
-    # FIX A02: Global response middleware for security headers
-    @app.after_request
-    def add_security_headers(response):
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'self'; form-action 'self';"
-        response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
-        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
-        response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
-        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-        
-        if 'Server' in response.headers:
-            del response.headers['Server']
-            
-        return response
+    from flask_wtf.csrf import CSRFError
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        return {"error": "CSRF token missing or invalid"}, 400
 
     # Custom error handlers to prevent application error disclosure
     @app.errorhandler(404)
