@@ -20,9 +20,9 @@ class SecurityHeadersMiddleware:
             if "x-content-type-options" not in header_names:
                 headers.append(("X-Content-Type-Options", "nosniff"))
             if "x-frame-options" not in header_names:
-                headers.append(("X-Frame-Options", "DENY"))
+                headers.append(("X-Frame-Options", "SAMEORIGIN"))
             if "content-security-policy" not in header_names:
-                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self';"))
+                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'self'; form-action 'self';"))
             if "cross-origin-embedder-policy" not in header_names:
                 headers.append(("Cross-Origin-Embedder-Policy", "require-corp"))
             if "cross-origin-opener-policy" not in header_names:
