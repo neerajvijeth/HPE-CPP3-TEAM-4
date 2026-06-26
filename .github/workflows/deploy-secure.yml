@@ -307,7 +307,7 @@ jobs:
           echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/devsecops-final'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/devsecops-final'
     needs:
       - pytest
       - pylint
@@ -340,7 +340,7 @@ jobs:
 
   deploy-ec2-secure:
     needs: docker-build-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/devsecops-final'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/devsecops-final'
     runs-on: ubuntu-latest
 
     steps:
@@ -504,7 +504,7 @@ jobs:
 
   secdebt-ingest:
     needs: deploy-ec2-secure
-    if: github.event_name == 'push' && github.ref == 'refs/heads/devsecops-final'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/devsecops-final'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -578,7 +578,7 @@ jobs:
     needs:
       - deploy-ec2-secure
       - secdebt-ingest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/devsecops-final'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/devsecops-final'
     runs-on: ubuntu-latest
     steps:
       - name: Normalize ZAP target URL
