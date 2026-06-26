@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Access Denied{% endblock %}
+
+{% block content %}
+
+<div class="card" style="max-width:700px;margin:60px auto;text-align:center;">
+
+    <h1>🔒 Administrator Access Required</h1>
+
+    <p style="margin-top:20px;">
+        You do not have sufficient privileges to access the
+        <strong>Security Debt Dashboard</strong>.
+    </p>
+
+    <p>
+        Please contact your administrator if you believe you should have access.
+    </p>
+
+    <br>
+
+    <a href="{{ url_for('vault.index') }}" class="btn btn-primary">
+        Return to Vault
+    </a>
+
+</div>
+
+{% endblock %}

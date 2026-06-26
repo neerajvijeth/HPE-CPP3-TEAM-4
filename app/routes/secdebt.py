@@ -2,8 +2,9 @@ import logging
 import os
 from datetime import UTC, datetime
 
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request, flash, redirect, url_for
 from flask_login import current_user, login_required
+
 
 from app import csrf, db
 from app.models.secdebt import SecDebtFinding, SecDebtScanRun
@@ -23,25 +24,40 @@ def _check_ingest_token():
 @secdebt_bp.route("/")
 @login_required
 def dashboard():
+
+    if not current_user.is_admin():
+        return render_template("secdebt/access_denied.html"), 403
+
     stats = get_dashboard_stats()
+
     log_event(
         "secdebt_dashboard_view",
         user_id=current_user.id,
         ip_address=request.remote_addr,
     )
-    return render_template("secdebt/dashboard.html", **stats)
 
+    return render_template("secdebt/dashboard.html", **stats)
 
 @secdebt_bp.route("/history")
 @login_required
 def history():
-    runs = SecDebtScanRun.query.order_by(SecDebtScanRun.run_at.desc()).limit(50).all()
-    return render_template("secdebt/history.html", runs=runs)
 
+    if not current_user.is_admin():
+        return render_template("secdebt/access_denied.html"), 403
+
+    runs = SecDebtScanRun.query.order_by(
+        SecDebtScanRun.run_at.desc()
+    ).limit(50).all()
+
+    return render_template("secdebt/history.html", runs=runs)
 
 @secdebt_bp.route("/api/stats")
 @login_required
 def api_stats():
+
+    if not current_user.is_admin():
+        abort(403)
+
     stats = get_dashboard_stats()
     return jsonify({
         "total_findings": stats["total_findings"],
@@ -63,6 +79,10 @@ def api_stats():
 @secdebt_bp.route("/api/findings")
 @login_required
 def api_findings():
+
+    if not current_user.is_admin():
+        abort(403) 
+        
     tool = request.args.get("tool")
     severity = request.args.get("severity")
     resolved = request.args.get("resolved", "false").lower() == "true"

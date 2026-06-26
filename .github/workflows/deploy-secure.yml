@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - hps-secure
+      - final_refinements
   pull_request:
     branches:
       - hps-secure
+      - final_refinements
   workflow_dispatch:
 
 jobs:
