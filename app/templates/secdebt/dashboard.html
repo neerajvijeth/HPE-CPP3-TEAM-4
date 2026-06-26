@@ -4,7 +4,6 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/secdebt.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -239,6 +238,6 @@
     </div>
 </div>
 
-
+<script src="{{ url_for('static', filename='js/chart.umd.js') }}"></script>
 <script src="{{ url_for('static', filename='js/secdebt.js') }}"></script>
 {% endblock %}
