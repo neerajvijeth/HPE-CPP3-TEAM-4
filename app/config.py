@@ -36,7 +36,6 @@ class Config:
 
     # FIX A02: Secure session cookie settings
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = "Lax"
     PERMANENT_SESSION_LIFETIME = 1800  # 30 minutes
 
