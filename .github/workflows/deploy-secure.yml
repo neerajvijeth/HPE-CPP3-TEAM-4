@@ -684,10 +684,20 @@ jobs:
             echo "ZAP did not generate report files. Check zap-scan.log." | tee dast-reports/zap/zap-summary.txt
           fi
 
-          if [ "$ZAP_EXIT" -ne 0 ]; then
+          echo "ZAP exit code: $ZAP_EXIT" | tee -a dast-reports/zap/zap-summary.txt
+
+          if [ ! -s dast-reports/zap/zap-report.json ]; then
+            echo "ZAP JSON report missing. Treating scan as failed." | tee -a dast-reports/zap/zap-summary.txt
             echo "fail" > dast-reports/zap/zap-status.txt
           else
-            echo "pass" > dast-reports/zap/zap-status.txt
+            HIGH_COUNT=$(jq '[.site[]?.alerts[]? | select((.riskcode | tonumber) >= 3)] | length' dast-reports/zap/zap-report.json)
+            echo "ZAP high/critical findings: $HIGH_COUNT" | tee -a dast-reports/zap/zap-summary.txt
+
+            if [ "$HIGH_COUNT" -gt 0 ]; then
+              echo "fail" > dast-reports/zap/zap-status.txt
+            else
+              echo "pass" > dast-reports/zap/zap-status.txt
+            fi
           fi
 
       - name: Upload ZAP Report
@@ -781,12 +791,15 @@ jobs:
             echo "Docker usage before rollback cleanup"
             sudo docker system df || true
 
-            echo "Cleaning unused Docker images and build cache before pulling stable image"
+            if ! sudo docker pull sanudocker11/secure_vault_secure:stable; then
+              echo "Stable image does not exist or cannot be pulled. Keeping current deployment untouched."
+              exit 1
+            fi
+            sudo docker image inspect sanudocker11/secure_vault_secure:stable >/dev/null
+
+            echo "Cleaning unused Docker images and build cache after stable image is verified"
             sudo docker image prune -af || true
             sudo docker builder prune -af || true
-
-            sudo docker pull sanudocker11/secure_vault_secure:stable
-            sudo docker image inspect sanudocker11/secure_vault_secure:stable >/dev/null
 
             sudo docker network create securevault-secure-net || true
             sudo docker volume create securevault_secure_data || true

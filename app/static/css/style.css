@@ -214,6 +214,8 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 .result-error { color: var(--red); font-size: 0.875rem; }
 .result-preview { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; font-family: var(--font-mono); font-size: 0.8rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin-top: 6px; color: var(--text-secondary); max-height: 300px; overflow-y: auto; }
 .loading { color: var(--text-muted); font-size: 0.875rem; }
+.inline-form { display: inline; }
+.text-danger { color: var(--red); }
 
 /* UTILITIES */
 .hidden { display: none !important; }

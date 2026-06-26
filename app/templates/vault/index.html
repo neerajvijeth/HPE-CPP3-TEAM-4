@@ -27,8 +27,8 @@
                 </div>
                 <div class="card-actions">
                     <a href="{{ url_for('vault.edit', entry_id=entry.id) }}" class="btn btn-sm btn-secondary">Edit</a>
-                    <form method="POST" action="{{ url_for('vault.delete', entry_id=entry.id) }}"
-                          style="display:inline" onsubmit="return confirm('Delete this entry?')">
+                    <form method="POST" action="{{ url_for('vault.delete', entry_id=entry.id) }}" class="inline-form delete-entry-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                     </form>
                 </div>
@@ -42,8 +42,9 @@
                     <span class="cred-label">Password</span>
                     <div class="password-field">
                         <span class="cred-value password-masked" id="pw-{{ entry.id }}">••••••••••</span>
-                        <button class="btn btn-xs btn-ghost"
-                                onclick="revealPassword({{ entry.id }}, this)"
+                        <button type="button" class="btn btn-xs btn-ghost"
+                                data-action="reveal-password"
+                                data-entry-id="{{ entry.id }}"
                                 data-revealed="false">Show</button>
                     </div>
                 </div>
