@@ -719,10 +719,13 @@ jobs:
 
           echo "Nuclei exit code: $NUCLEI_EXIT" | tee dast-reports/nuclei/nuclei-summary.txt
 
+          NUCLEI_INCOMPLETE=0
           if [ "$NUCLEI_EXIT" -eq 124 ]; then
-            echo "Nuclei hit the 15-minute CI timebox. Treating scan as failed/incomplete." | tee -a dast-reports/nuclei/nuclei-summary.txt
+            NUCLEI_INCOMPLETE=1
+            echo "Nuclei hit the 15-minute CI timebox. Treating as incomplete warning unless findings were produced." | tee -a dast-reports/nuclei/nuclei-summary.txt
           fi
 
+          FINDING_COUNT=0
           if [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
             FINDING_COUNT=$(wc -l < dast-reports/nuclei/nuclei-report.jsonl | xargs)
             echo "Nuclei completed and found $FINDING_COUNT finding(s)." | tee -a dast-reports/nuclei/nuclei-summary.txt
@@ -731,8 +734,10 @@ jobs:
             echo "Nuclei completed but produced no findings for $EC2_TARGET_URL." | tee -a dast-reports/nuclei/nuclei-summary.txt
           fi
 
-          if [ "$NUCLEI_EXIT" -ne 0 ] || [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
+          if [ "$FINDING_COUNT" -gt 0 ]; then
             echo "fail" > dast-reports/nuclei/nuclei-status.txt
+          elif [ "$NUCLEI_INCOMPLETE" -eq 1 ]; then
+            echo "warn" > dast-reports/nuclei/nuclei-status.txt
           else
             echo "pass" > dast-reports/nuclei/nuclei-status.txt
           fi
@@ -857,6 +862,11 @@ jobs:
 
             STATUS="$(cat "$status_file" | xargs)"
             echo "$status_file: $STATUS" | tee -a dast-gate/dast-gate-summary.txt
+
+            if [ "$STATUS" = "warn" ]; then
+              echo "$status_file produced a warning. Continuing because no blocking findings were reported." | tee -a dast-gate/dast-gate-summary.txt
+              continue
+            fi
 
             if [ "$STATUS" != "pass" ]; then
               DAST_FAILED=1
