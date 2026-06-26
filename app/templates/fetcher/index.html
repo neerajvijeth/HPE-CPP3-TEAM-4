@@ -12,6 +12,7 @@
 
     <div class="card">
         <form id="fetch-form" class="form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label class="form-label">Website URL</label>
                 <input type="text" id="fetch-url" class="form-input" placeholder="https://example.com">

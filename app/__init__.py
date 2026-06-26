@@ -10,6 +10,31 @@ login_manager = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect()
 
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        def custom_start_response(status, headers, exc_info=None):
+            header_names = {h[0].lower() for h in headers}
+            if "x-content-type-options" not in header_names:
+                headers.append(("X-Content-Type-Options", "nosniff"))
+            if "x-frame-options" not in header_names:
+                headers.append(("X-Frame-Options", "DENY"))
+            if "content-security-policy" not in header_names:
+                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none';"))
+            if "x-xss-protection" not in header_names:
+                headers.append(("X-XSS-Protection", "1; mode=block"))
+            if "referrer-policy" not in header_names:
+                headers.append(("Referrer-Policy", "strict-origin-when-cross-origin"))
+            if "strict-transport-security" not in header_names:
+                headers.append(("Strict-Transport-Security", "max-age=31536000; includeSubDomains"))
+            
+            # Remove Server header if present
+            headers = [h for h in headers if h[0].lower() != "server"]
+            
+            return start_response(status, headers, exc_info)
+        return self.app(environ, custom_start_response)
 
 def create_app():
     app = Flask(__name__)
@@ -31,38 +56,8 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # FIX A02: Add security headers to every response
-    @app.after_request
-    def set_security_headers(response):
-        # Prevent clickjacking
-        response.headers["X-Frame-Options"] = "DENY"
-        # Prevent MIME type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # XSS protection for older browsers
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Only send referrer on same origin
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Content Security Policy (includes frame-ancestors to complement X-Frame-Options)
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:; "
-            "frame-ancestors 'none';"
-        )
-        # Enforce HTTPS (HSTS)
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
-        # Restrict browser feature access
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), "
-            "payment=(), usb=(), magnetometer=()"
-        )
-        # FIX A02: Remove server info header
-        response.headers.pop("Server", None)
-        return response
+    # FIX A02: Add security headers to every response via WSGI middleware
+    app.wsgi_app = SecurityHeadersMiddleware(app.wsgi_app)
 
     # Custom error handlers to prevent application error disclosure
     @app.errorhandler(404)

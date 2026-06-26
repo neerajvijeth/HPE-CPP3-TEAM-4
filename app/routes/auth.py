@@ -4,6 +4,7 @@ from app import db
 from app.models.user import User
 from app.utils.logger import log_event
 from app.utils.validators import validate_password_strength, validate_email
+from flask_wtf.csrf import validate_csrf, ValidationError
 from app.config import Config
 from datetime import datetime
 
@@ -23,6 +24,14 @@ def login():
         return redirect(url_for("vault.index"))
 
     if request.method == "POST":
+        from flask import current_app
+        if current_app.config.get("WTF_CSRF_ENABLED", True):
+            try:
+                validate_csrf(request.form.get("csrf_token"))
+            except ValidationError:
+                flash("Invalid or missing CSRF token. Please try again.", "danger")
+                return render_template("auth/login.html"), 400
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         ip = request.remote_addr
