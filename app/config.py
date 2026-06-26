@@ -11,7 +11,7 @@ class Config:
         raise ValueError("SECRET_KEY environment variable is not set. Refusing to start.")
 
     # FIX A02: Debug mode off by default
-    DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+    DEBUG = False
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL",

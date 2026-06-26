@@ -10,40 +10,6 @@ login_manager = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect()
 
-class SecurityHeadersMiddleware:
-    def __init__(self, app):
-        self.app = app
-
-    def __call__(self, environ, start_response):
-        def custom_start_response(status, headers, exc_info=None):
-            header_names = {h[0].lower() for h in headers}
-            if "x-content-type-options" not in header_names:
-                headers.append(("X-Content-Type-Options", "nosniff"))
-            if "x-frame-options" not in header_names:
-                headers.append(("X-Frame-Options", "SAMEORIGIN"))
-            if "content-security-policy" not in header_names:
-                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'self'; form-action 'self';"))
-            if "cross-origin-embedder-policy" not in header_names:
-                headers.append(("Cross-Origin-Embedder-Policy", "require-corp"))
-            if "cross-origin-opener-policy" not in header_names:
-                headers.append(("Cross-Origin-Opener-Policy", "same-origin"))
-            if "cross-origin-resource-policy" not in header_names:
-                headers.append(("Cross-Origin-Resource-Policy", "same-origin"))
-            if "permissions-policy" not in header_names:
-                headers.append(("Permissions-Policy", "camera=(), microphone=(), geolocation=()"))
-            if "x-xss-protection" not in header_names:
-                headers.append(("X-XSS-Protection", "1; mode=block"))
-            if "referrer-policy" not in header_names:
-                headers.append(("Referrer-Policy", "strict-origin-when-cross-origin"))
-            if "strict-transport-security" not in header_names:
-                headers.append(("Strict-Transport-Security", "max-age=31536000; includeSubDomains"))
-            
-            # Remove Server header if present
-            headers = [h for h in headers if h[0].lower() != "server"]
-            
-            return start_response(status, headers, exc_info)
-        return self.app(environ, custom_start_response)
-
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -64,8 +30,27 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # FIX A02: Add security headers to every response via WSGI middleware
-    app.wsgi_app = SecurityHeadersMiddleware(app.wsgi_app)
+    
+
+    
+    # FIX A02: Global response middleware for security headers
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'self'; form-action 'self';"
+        response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+        response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        
+        if 'Server' in response.headers:
+            del response.headers['Server']
+            
+        return response
 
     # Custom error handlers to prevent application error disclosure
     @app.errorhandler(404)
