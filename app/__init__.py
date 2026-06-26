@@ -10,6 +10,8 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 migrate = Migrate()
 
+CSRF_PROTECTED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
 
 def create_app():
     app = Flask(__name__)
@@ -23,12 +25,23 @@ def create_app():
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
 
+    register_login_loader()
+    register_request_hooks(app)
+    register_error_handlers(app)
+    register_blueprints(app)
+
+    return app
+
+
+def register_login_loader():
     from app.models.user import User
 
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
 
+
+def register_request_hooks(app):
     @app.context_processor
     def inject_csrf_token():
         def csrf_token():
@@ -46,7 +59,7 @@ def create_app():
             abort(405)
         if app.config.get("WTF_CSRF_ENABLED") is False:
             return
-        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        if request.method not in CSRF_PROTECTED_METHODS:
             return
         if request.endpoint == "secdebt.api_ingest":
             return
@@ -85,6 +98,8 @@ def create_app():
         response.headers.pop("Server", None)
         return response
 
+
+def register_error_handlers(app):
     def _error_response(message, status_code):
         wants_json = (
             request.path.startswith("/secdebt/api/")
@@ -120,6 +135,8 @@ def create_app():
         db.session.rollback()
         return _error_response("Internal server error", 500)
 
+
+def register_blueprints(app):
     from app.routes.auth import auth_bp
     from app.routes.vault import vault_bp
     from app.routes.admin import admin_bp
@@ -133,5 +150,3 @@ def create_app():
     app.register_blueprint(profile_bp)
     app.register_blueprint(fetcher_bp)
     app.register_blueprint(secdebt_bp)
-
-    return app

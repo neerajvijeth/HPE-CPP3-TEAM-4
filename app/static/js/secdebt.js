@@ -52,7 +52,7 @@ function setupSecDebtResolveButtons() {
                 }
 
                 button.closest('tr')?.remove();
-            } catch (error) {
+            } catch {
                 button.disabled = false;
                 button.textContent = 'Failed';
             }
@@ -84,8 +84,8 @@ function setupManualIngest() {
                 return;
             }
 
-            window.location.reload();
-        } catch (error) {
+            globalThis.location.reload();
+        } catch {
             button.textContent = 'Scan failed';
             button.disabled = false;
         }
