@@ -26,7 +26,8 @@ def create_app():
     login_manager.login_message = "Please log in to access this page."
 
     register_login_loader()
-    register_request_hooks(app)
+    register_csrf_hooks(app)
+    register_security_headers(app)
     register_error_handlers(app)
     register_blueprints(app)
 
@@ -41,7 +42,7 @@ def register_login_loader():
         return User.query.get(int(user_id))
 
 
-def register_request_hooks(app):
+def register_csrf_hooks(app):
     @app.context_processor
     def inject_csrf_token():
         def csrf_token():
@@ -69,6 +70,8 @@ def register_request_hooks(app):
         if not expected or not secrets.compare_digest(expected, provided or ""):
             abort(400)
 
+
+def register_security_headers(app):
     # FIX A02: Add security headers to every response.
     @app.after_request
     def set_security_headers(response):
