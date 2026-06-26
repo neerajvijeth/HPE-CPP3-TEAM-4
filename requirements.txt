@@ -12,5 +12,5 @@ bcrypt==4.3.0
 cryptography==48.0.1
 #added another version just to check if owasp dc detects it as vulnerability.
 PyYAML==5.3.1
-Pillow==8.3.1
+# Pillow==8.3.1 (Removed because it fails to compile without libjpeg-dev)
 paramiko==2.0.0
