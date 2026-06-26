@@ -14,6 +14,7 @@ CSRF_PROTECTED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def create_app():
+    # CSRF is enforced by register_csrf_hooks instead of Flask-WTF CSRFProtect.
     app = Flask(__name__)
     app.config.from_object(Config)
 

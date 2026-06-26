@@ -118,9 +118,12 @@ def api_ingest():
             branch=data.get("branch"),
             triggered_by=data.get("triggered_by", "api"),
         )
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception:  # pylint: disable=broad-except
         logger.exception("SecDebt ingest failed")
-        return jsonify({"status": "error", "message": str(exc)}), 500
+        return jsonify({
+            "status": "error",
+            "message": "SecDebt ingest failed. Check server logs for details.",
+        }), 500
 
     return jsonify({
         "status": "ok",

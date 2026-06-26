@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_REPORT_DIR = Path("/reports")
 
 REPORT_FILES = {
-    "bandit": "bandit-report.txt",
-    "pylint": "pylint-report.txt",
-    "trivy": "trivy-results.txt",
-    "owasp": str(Path("odc-reports") / "dependency-check-report.json"),
-    "sonar": "sonar-issues.json",
+    "bandit": Path("bandit-report.txt"),
+    "pylint": Path("pylint-report.txt"),
+    "trivy": Path("trivy-results.txt"),
+    "owasp": Path("odc-reports") / "dependency-check-report.json",
+    "sonar": Path("sonar-issues.json"),
 }
 
 PARSERS = {
@@ -37,6 +37,10 @@ def _dedup_key(tool, vuln_id, file_path, line_number):
 
 
 def _safe_report_path(filename):
+    filename = Path(filename)
+    if filename.is_absolute() or ".." in filename.parts:
+        raise ValueError("Invalid report path")
+
     base_dir = DEFAULT_REPORT_DIR.resolve()
     report_path = (base_dir / filename).resolve()
     if base_dir not in report_path.parents and report_path != base_dir:
