@@ -85,6 +85,41 @@ def create_app():
         response.headers.pop("Server", None)
         return response
 
+    def _error_response(message, status_code):
+        wants_json = (
+            request.path.startswith("/secdebt/api/")
+            or request.accept_mimetypes.best == "application/json"
+        )
+        if wants_json:
+            return {"error": message}, status_code
+        return message, status_code
+
+    @app.errorhandler(400)
+    def bad_request_error(error):
+        del error
+        return _error_response("Bad request", 400)
+
+    @app.errorhandler(403)
+    def forbidden_error(error):
+        del error
+        return _error_response("Forbidden", 403)
+
+    @app.errorhandler(404)
+    def not_found_error(error):
+        del error
+        return _error_response("Not found", 404)
+
+    @app.errorhandler(405)
+    def method_not_allowed_error(error):
+        del error
+        return _error_response("Method not allowed", 405)
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        del error
+        db.session.rollback()
+        return _error_response("Internal server error", 500)
+
     from app.routes.auth import auth_bp
     from app.routes.vault import vault_bp
     from app.routes.admin import admin_bp

@@ -147,34 +147,48 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get cache week
+        id: date
+        run: echo "week=$(date +'%Y-%U')" >> "$GITHUB_OUTPUT"
+
       - name: Restore NVD Database Cache
-        id: odc-cache
+        id: restore-odc-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}
           restore-keys: |
-            ${{ runner.os }}-odc-nvd-
+            ${{ runner.os }}-odc-nvd-v2-
+
       - name: Create Directories
         run: |
           mkdir -p odc-reports
           mkdir -p odc-data
           chmod 777 odc-reports
           chmod 777 odc-data
+
+      - name: Check NVD Cache
+        id: odc-cache-check
+        run: |
+          if [ -f odc-data/odc.mv.db ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "NVD cache found: $(du -sh odc-data | cut -f1)"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No NVD cache found. Dependency-Check will try one online update scan."
+          fi
+
       - name: Run OWASP Dependency-Check
+        id: odc-scan
         run: |
           set +e
 
-          if [ -z "${{ secrets.NVD_API_KEY }}" ]; then
-            echo "NVD_API_KEY secret is required for reliable OWASP Dependency-Check runs."
-            exit 1
-          fi
-
-          if [ "${{ steps.odc-cache.outputs.cache-hit }}" = "true" ]; then
+          if [ "${{ steps.odc-cache-check.outputs.found }}" = "true" ]; then
             echo "NVD cache restored. Running Dependency-Check without updating NVD data."
 
             docker run --rm -u root \
@@ -187,6 +201,9 @@ jobs:
               --format ALL \
               --out /report \
               --enableExperimental \
+              --exclude "**/migrations/**" \
+              --exclude "**/tests_fixed/**" \
+              --exclude "**/.git/**" \
               --noupdate
 
             status=$?
@@ -199,6 +216,15 @@ jobs:
             echo "No NVD cache restored. Running one online Dependency-Check update scan."
           fi
 
+          if [ -z "${{ secrets.NVD_API_KEY }}" ]; then
+            echo "NVD_API_KEY secret is required when no valid NVD cache is available."
+            {
+              echo "OWASP Dependency-Check could not run."
+              echo "Reason: no valid cached NVD database and NVD_API_KEY is missing."
+            } | tee odc-reports/dependency-check-status.txt
+            exit 1
+          fi
+
           docker run --rm -u root \
             -v ${{ github.workspace }}:/src \
             -v ${{ github.workspace }}/odc-reports:/report \
@@ -209,6 +235,9 @@ jobs:
             --format ALL \
             --out /report \
             --enableExperimental \
+            --exclude "**/migrations/**" \
+            --exclude "**/tests_fixed/**" \
+            --exclude "**/.git/**" \
             --nvdApiKey ${{ secrets.NVD_API_KEY }} \
             --nvdApiDelay 3500 \
             --nvdMaxRetryCount 10 \
@@ -232,12 +261,14 @@ jobs:
           fi
 
           exit "$status"
-      - name: Save NVD Database Cache
+
+      - name: Save Fallback NVD Database Cache
         uses: actions/cache/save@v4
-        if: always()
+        if: always() && hashFiles('odc-data/odc.mv.db') != ''
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Generate Dependency-Check Summary
         if: always()
         run: |
@@ -417,6 +448,23 @@ jobs:
 
             if ! sudo docker ps --filter "name=securevault_secure_app" --filter "status=running" --format '{{.Names}}' | grep -q '^securevault_secure_app$'; then
               echo "securevault_secure_app is not running after deployment"
+              sudo docker logs securevault_secure_app || true
+              exit 1
+            fi
+
+            APP_HEALTHY=false
+            for attempt in $(seq 1 10); do
+              if curl --silent --show-error --fail --max-time 5 http://localhost > /dev/null; then
+                APP_HEALTHY=true
+                break
+              fi
+
+              echo "Waiting for SecureVault HTTP health check (attempt $attempt/10)"
+              sleep 5
+            done
+
+            if [ "$APP_HEALTHY" != "true" ]; then
+              echo "securevault_secure_app is running but HTTP health check failed"
               sudo docker logs securevault_secure_app || true
               exit 1
             fi

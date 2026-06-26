@@ -1,38 +1,119 @@
 {% extends "base.html" %}
 
-{% block title %}SecDebt Optimizer{% endblock %}
+{% block title %}SecDebt Optimizer - SecureVault{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/secdebt.css') }}">
+{% endblock %}
 
 {% block content %}
-<section class="dashboard">
-    <div class="page-header">
-        <h1>SecDebt Optimizer</h1>
+<div class="secdebt-header">
+    <div>
+        <h1 class="page-title"><span class="page-icon">🔍</span> SecDebt Optimizer</h1>
         <p class="page-subtitle">Security debt scoring from CI/CD scan reports.</p>
     </div>
+    <div class="header-actions">
+        {% if current_user.role == 'admin' %}
+        <button type="button" class="btn btn-primary" id="btn-manual-ingest">Re-scan Reports</button>
+        {% endif %}
+        <a href="{{ url_for('secdebt.history') }}" class="btn btn-ghost">Run History</a>
+    </div>
+</div>
 
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-label">Total Debt Score</div>
-            <div class="stat-value">{{ "%.1f"|format(total_score) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Open Findings</div>
-            <div class="stat-value">{{ total_findings }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Last Ingest</div>
-            <div class="stat-value small">
-                {% if last_run %}{{ last_run.run_at.strftime("%Y-%m-%d %H:%M") }}{% else %}Never{% endif %}
-            </div>
+{% if last_run %}
+<div class="run-banner">
+    <span class="run-dot {% if last_run.new_findings > 0 %}run-dot-warn{% else %}run-dot-ok{% endif %}"></span>
+    <span>
+        Last scan: <strong>{{ last_run.run_at.strftime('%Y-%m-%d %H:%M UTC') }}</strong>
+        &nbsp; Tools: <code>{{ last_run.tools_ingested or 'none' }}</code>
+        &nbsp; Branch: <code>{{ last_run.branch or 'unknown' }}</code>
+        {% if last_run.commit_sha %}
+        &nbsp; Commit: <code>{{ last_run.commit_sha[:8] }}</code>
+        {% endif %}
+    </span>
+</div>
+{% else %}
+<div class="run-banner run-banner-warn">
+    No scan runs yet. Push a commit to trigger the pipeline, or use Re-scan Reports after reports exist on the server.
+</div>
+{% endif %}
+
+<div class="stat-grid">
+    <div class="stat-card stat-card-score">
+        <div class="stat-label">Total Debt Score</div>
+        <div class="stat-value score-value" id="total-score">{{ "%.1f"|format(total_score) }}</div>
+        <div class="stat-hint">Prioritized by severity, age, and reachability.</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Open Findings</div>
+        <div class="stat-value" id="total-findings">{{ total_findings }}</div>
+        <div class="stat-hint">Unresolved security debt items.</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">By Severity</div>
+        <div class="sev-pills">
+            <span class="sev-pill sev-critical">Critical: {{ by_severity.get('CRITICAL', 0) }}</span>
+            <span class="sev-pill sev-high">High: {{ by_severity.get('HIGH', 0) }}</span>
+            <span class="sev-pill sev-medium">Medium: {{ by_severity.get('MEDIUM', 0) }}</span>
+            <span class="sev-pill sev-low">Low: {{ by_severity.get('LOW', 0) }}</span>
+            <span class="sev-pill sev-info">Info: {{ by_severity.get('INFO', 0) }}</span>
         </div>
     </div>
 
-    <div class="card">
-        <div class="card-header">
-            <h2>Fix These First</h2>
-            <a href="{{ url_for('secdebt.history') }}" class="btn btn-secondary">Run History</a>
+    <div class="stat-card">
+        <div class="stat-label">By Tool</div>
+        <div class="tool-pills">
+            {% for tool, count in by_tool.items() %}
+            <span class="tool-pill tool-{{ tool }}">{{ tool }}: {{ count }}</span>
+            {% else %}
+            <span class="text-muted">No reports ingested</span>
+            {% endfor %}
         </div>
-        {% if top_findings %}
-        <table class="data-table">
+    </div>
+</div>
+
+{% if history|length > 1 %}
+<div class="card mb-24">
+    <div class="card-header">
+        <span>Debt Score Trend</span>
+        <span class="card-hint">Last {{ history|length }} scans</span>
+    </div>
+    <div class="trend-list">
+        {% for run in history %}
+        <div class="trend-item">
+            <span class="mono-small">{{ run.run_at.strftime('%m/%d %H:%M') }}</span>
+            <progress class="trend-progress" value="{{ run.total_debt_score }}" max="100"></progress>
+            <strong>{{ "%.1f"|format(run.total_debt_score) }}</strong>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="filter-bar">
+    <span class="filter-label">Filter:</span>
+    <button type="button" class="filter-btn active" data-filter-tool="">All Tools</button>
+    {% for tool in by_tool.keys() %}
+    <button type="button" class="filter-btn" data-filter-tool="{{ tool }}">{{ tool }}</button>
+    {% endfor %}
+    <span class="filter-sep">|</span>
+    <button type="button" class="filter-btn active" data-filter-sev="">All Severities</button>
+    <button type="button" class="filter-btn" data-filter-sev="CRITICAL">Critical</button>
+    <button type="button" class="filter-btn" data-filter-sev="HIGH">High</button>
+    <button type="button" class="filter-btn" data-filter-sev="MEDIUM">Medium</button>
+    <button type="button" class="filter-btn" data-filter-sev="LOW">Low</button>
+</div>
+
+<div class="card mb-24" id="fix-first-section">
+    <div class="card-header">
+        <span>Fix These First <span class="badge badge-accent">Ranked by Debt Score</span></span>
+        <span class="card-hint">Older findings accumulate more interest.</span>
+    </div>
+
+    <div class="table-wrap">
+        <table class="findings-table" id="findings-table">
             <thead>
                 <tr>
                     <th>Score</th>
@@ -41,39 +122,85 @@
                     <th>Finding</th>
                     <th>Location</th>
                     <th>Age</th>
+                    <th>Interest</th>
+                    {% if current_user.role == 'admin' %}
+                    <th>Action</th>
+                    {% endif %}
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="findings-tbody">
                 {% for finding in top_findings %}
-                <tr>
-                    <td><strong>{{ "%.1f"|format(finding.debt_score) }}</strong></td>
-                    <td>{{ finding.severity }}</td>
-                    <td>{{ finding.tool }}</td>
+                <tr class="finding-row"
+                    data-tool="{{ finding.tool }}"
+                    data-sev="{{ finding.severity }}"
+                    data-id="{{ finding.id }}">
                     <td>
-                        <div><strong>{{ finding.title }}</strong></div>
-                        <small>{{ finding.vuln_id }}</small>
+                        <span class="score-badge {% if finding.debt_score >= 20 %}score-critical{% elif finding.debt_score >= 10 %}score-high{% elif finding.debt_score >= 5 %}score-medium{% else %}score-low{% endif %}">
+                            {{ "%.1f"|format(finding.debt_score) }}
+                        </span>
                     </td>
+                    <td><span class="sev-tag sev-{{ finding.severity | lower }}">{{ finding.severity }}</span></td>
+                    <td><span class="tool-tag">{{ finding.tool }}</span></td>
                     <td>
+                        <div class="finding-title">{{ finding.title[:90] }}{% if finding.title|length > 90 %}...{% endif %}</div>
+                        {% if finding.description %}
+                        <div class="finding-desc">{{ finding.description[:140] }}{% if finding.description|length > 140 %}...{% endif %}</div>
+                        {% endif %}
+                        <small class="mono-small">{{ finding.vuln_id }}</small>
+                    </td>
+                    <td class="mono-small">
                         {% if finding.file_path %}
                             {{ finding.file_path }}{% if finding.line_number %}:{{ finding.line_number }}{% endif %}
                         {% else %}
-                            -
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td>{{ finding.age_days() }} days</td>
+                    <td>
+                        <span {% if finding.age_days() > 30 %}class="age-danger"{% elif finding.age_days() > 7 %}class="age-warn"{% endif %}>
+                            {{ finding.age_days() }}d
+                        </span>
+                    </td>
+                    <td>
+                        <span class="interest-badge {% if finding.interest_multiplier() >= 2.0 %}int-high{% elif finding.interest_multiplier() >= 1.5 %}int-med{% else %}int-low{% endif %}">
+                            x {{ finding.interest_multiplier() }}
+                        </span>
+                    </td>
+                    {% if current_user.role == 'admin' %}
+                    <td>
+                        <button type="button" class="btn-resolve btn-sm" data-id="{{ finding.id }}">Resolve</button>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{% if current_user.role == 'admin' %}8{% else %}7{% endif %}" class="empty-state">
+                        No open findings have been ingested yet.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        {% else %}
-        <p>No open findings have been ingested yet.</p>
-        {% endif %}
     </div>
+</div>
 
-    <div class="card">
-        <h2>Scoring Formula</h2>
-        <p><code>Debt Score = (Severity x 0.5) + (Age x 0.3) + (Reachability x 0.2)</code></p>
-        <p>Findings older than 7 days get 1.5x interest. Findings older than 30 days get 2x interest.</p>
+<div class="card formula-card">
+    <div class="card-header">Debt Scoring Formula</div>
+    <div class="formula-body">
+        <div class="formula-block">
+            <code>Debt Score = (Severity x 0.5) + (Age in Days x 0.3) + (Reachability x 0.2)</code>
+            <div class="formula-note">The score is multiplied by an interest rate as findings age.</div>
+            <div class="interest-table">
+                <div class="int-row"><span class="int-badge int-low">x 1.0</span> Age under 7 days</div>
+                <div class="int-row"><span class="int-badge int-med">x 1.5</span> Age 7-30 days</div>
+                <div class="int-row"><span class="int-badge int-high">x 2.0</span> Age over 30 days</div>
+            </div>
+        </div>
+        <div class="formula-block">
+            <div class="formula-note"><strong>Severity scores:</strong> CRITICAL=10, HIGH=7.5, MEDIUM=5, LOW=2.5, INFO=1</div>
+            <div class="formula-note"><strong>Reachability:</strong> app code=1.0, library dependency=0.7, OS package=0.3, test code=0.2</div>
+        </div>
     </div>
-</section>
+</div>
+
+<script src="{{ url_for('static', filename='js/secdebt.js') }}"></script>
 {% endblock %}

@@ -6,59 +6,119 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Cache NVD Database
-        uses: actions/cache@v4
+      - name: Get cache week
+        id: date
+        run: echo "week=$(date +'%Y-%U')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore NVD Database Cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}
           restore-keys: |
-            ${{ runner.os }}-odc-
+            ${{ runner.os }}-odc-nvd-v2-
 
       - name: Create Directories
         run: |
-          mkdir -p odc-reports
-          mkdir -p odc-data
-          chmod 777 odc-reports
-          chmod 777 odc-data
+          mkdir -p odc-reports odc-data
+          chmod 777 odc-reports odc-data
+
+      - name: Check NVD Cache
+        id: odc-cache-check
+        run: |
+          if [ -f odc-data/odc.mv.db ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "NVD cache found: $(du -sh odc-data | cut -f1)"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No NVD cache found. This job will try one online update."
+          fi
 
       - name: Run OWASP Dependency-Check
         run: |
+          set +e
+
+          if [ "${{ steps.odc-cache-check.outputs.found }}" = "true" ]; then
+            docker run --rm -u root \
+              -v ${{ github.workspace }}:/src \
+              -v ${{ github.workspace }}/odc-reports:/report \
+              -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
+              owasp/dependency-check:12.1.0 \
+              --project "HPE-CPP3-TEAM-4-SecureVault" \
+              --scan /src \
+              --format ALL \
+              --out /report \
+              --enableExperimental \
+              --exclude "**/migrations/**" \
+              --exclude "**/tests_fixed/**" \
+              --exclude "**/.git/**" \
+              --noupdate
+
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+
+            echo "Cached scan failed with status ${status}. Trying one online update scan."
+          fi
+
+          if [ -z "${{ secrets.NVD_API_KEY }}" ]; then
+            echo "NVD_API_KEY secret is required when no valid NVD cache is available."
+            exit 1
+          fi
+
           docker run --rm -u root \
             -v ${{ github.workspace }}:/src \
             -v ${{ github.workspace }}/odc-reports:/report \
             -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
-            owasp/dependency-check:latest \
+            owasp/dependency-check:12.1.0 \
             --project "HPE-CPP3-TEAM-4-SecureVault" \
             --scan /src \
             --format ALL \
             --out /report \
             --enableExperimental \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+            --exclude "**/migrations/**" \
+            --exclude "**/tests_fixed/**" \
+            --exclude "**/.git/**" \
+            --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+            --nvdApiDelay 3500 \
+            --nvdMaxRetryCount 10 \
+            --nvdValidForHours 168
+
+      - name: Save Fallback NVD Database Cache
+        uses: actions/cache/save@v4
+        if: always() && hashFiles('odc-data/odc.mv.db') != ''
+        with:
+          path: ${{ github.workspace }}/odc-data
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Generate Security Dashboard Summary
         if: always()
         run: |
           if [ -f "odc-reports/dependency-check-report.json" ]; then
             TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
-            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
-            echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "The scan completed successfully. Here is the high-level summary:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "* **📦 Total Dependencies Scanned:** $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "* **🚨 Vulnerable Dependencies Found:** $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 🔍 Next Steps for the Team:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Scroll to the bottom of this summary page to the **Artifacts** section." >> $GITHUB_STEP_SUMMARY
-            echo "2. Download the \`OWASP-Dependency-Check-Report\` zip file." >> $GITHUB_STEP_SUMMARY
-            echo "3. Extract and open the HTML file to view detailed CVE descriptions and mitigation steps." >> $GITHUB_STEP_SUMMARY
+            VULN_DEPS=$(jq '[.dependencies[] | select(.vulnerabilities != null and (.vulnerabilities | length) > 0)] | length' odc-reports/dependency-check-report.json)
+            TOTAL_VULNS=$(jq '[.dependencies[].vulnerabilities[]?] | length' odc-reports/dependency-check-report.json)
+            CRITICAL=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "critical")] | length' odc-reports/dependency-check-report.json)
+            HIGH=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "high")] | length' odc-reports/dependency-check-report.json)
+
+            echo "## OWASP Dependency-Check Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Metric | Count |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Dependencies scanned | $TOTAL_DEPS |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Dependencies with vulnerabilities | $VULN_DEPS |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Total vulnerabilities | $TOTAL_VULNS |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Critical | $CRITICAL |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| High | $HIGH |" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "## 🛡️ OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **WARNING: The scan failed to generate a report.** Please check the terminal logs in the 'Run OWASP Dependency-Check' step above to see what went wrong." >> $GITHUB_STEP_SUMMARY
+            echo "## OWASP Dependency-Check Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "No report was generated. Check the Dependency-Check logs." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload HTML Report
@@ -67,3 +127,10 @@ jobs:
         with:
           name: OWASP-Dependency-Check-Report
           path: odc-reports/dependency-check-report.html
+
+      - name: Upload JSON Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OWASP-Dependency-Check-JSON
+          path: odc-reports/dependency-check-report.json
