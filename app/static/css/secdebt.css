@@ -277,3 +277,27 @@
     .stat-grid { grid-template-columns: 1fr; }
     .trend-item { grid-template-columns: 1fr; }
 }
+
+
+.chart-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:24px;
+    margin-bottom:24px;
+}
+
+.chart-container{
+    height:320px;
+    padding:20px;
+}
+
+.chart-container canvas{
+    width:100% !important;
+    height:100% !important;
+}
+
+@media (max-width:900px){
+    .chart-grid{
+        grid-template-columns:1fr;
+    }
+}

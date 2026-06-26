@@ -92,8 +92,115 @@ function setupManualIngest() {
     });
 }
 
+function renderSeverityChart() {
+    const canvas = document.getElementById("severityChart");
+    if (!canvas) return;
+
+    new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels: ["Critical", "High", "Medium", "Low", "Info"],
+            datasets: [{
+                label: "Findings",
+                data: [
+                    Number(canvas.dataset.critical),
+                    Number(canvas.dataset.high),
+                    Number(canvas.dataset.medium),
+                    Number(canvas.dataset.low),
+                    Number(canvas.dataset.info)
+                ],
+                backgroundColor: "#58a6ff",
+                borderColor: "#58a6ff",
+                borderWidth: 1,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#c9d1d9"
+                    },
+                    grid: {
+                        color: "#30363d"
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: "#c9d1d9"
+                    },
+                    grid: {
+                        color: "#30363d"
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderToolChart() {
+    const canvas = document.getElementById("toolChart");
+    if (!canvas) return;
+
+    const labels = JSON.parse(canvas.dataset.labels);
+    const values = JSON.parse(canvas.dataset.values);
+
+    new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Findings",
+                data: values,
+                backgroundColor: "#58a6ff",
+                borderColor: "#58a6ff",
+                borderWidth: 1,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#c9d1d9"
+                    },
+                    grid: {
+                        color: "#30363d"
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: "#c9d1d9"
+                    },
+                    grid: {
+                        color: "#30363d"
+                    }
+                }
+            }
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setupSecDebtFilters();
     setupSecDebtResolveButtons();
     setupManualIngest();
+    renderSeverityChart();
+    renderToolChart();
 });

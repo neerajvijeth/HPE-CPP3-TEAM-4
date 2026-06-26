@@ -4,6 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/secdebt.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -111,6 +112,41 @@
     </div>
 </div>
 {% endif %}
+
+<div class="chart-grid">
+
+    <div class="card">
+        <div class="card-header">
+            Debt by Severity
+        </div>
+
+        <div class="chart-container">
+            <canvas
+                id="severityChart"
+                data-critical="{{ by_severity.get('CRITICAL',0) }}"
+                data-high="{{ by_severity.get('HIGH',0) }}"
+                data-medium="{{ by_severity.get('MEDIUM',0) }}"
+                data-low="{{ by_severity.get('LOW',0) }}"
+                data-info="{{ by_severity.get('INFO',0) }}">
+            </canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            Debt by Tool
+        </div>
+
+        <div class="chart-container">
+            <canvas
+                id="toolChart"
+                data-labels='{{ by_tool.keys()|list|tojson }}'
+                data-values='{{ by_tool.values()|list|tojson }}'>
+            </canvas>
+        </div>
+    </div>
+
+</div>
 
 <div class="filter-bar">
     <span class="filter-label">Filter:</span>
