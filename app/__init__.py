@@ -1,20 +1,18 @@
-import secrets
-
-from flask import Flask, abort, request, session
+from flask import Flask, abort, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from app.config import Config
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 migrate = Migrate()
-
-CSRF_PROTECTED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+csrf = CSRFProtect()
 
 
 def create_app():
-    # CSRF is enforced by register_csrf_hooks instead of Flask-WTF CSRFProtect.
     app = Flask(__name__)
     app.config.from_object(Config)
 
@@ -22,12 +20,13 @@ def create_app():
     from app.models.secdebt import SecDebtFinding, SecDebtScanRun  # noqa: F401
     login_manager.init_app(app)
     migrate.init_app(app, db)
+    csrf.init_app(app)
 
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
 
     register_login_loader()
-    register_csrf_hooks(app)
+    register_request_guards(app)
     register_security_headers(app)
     register_error_handlers(app)
     register_blueprints(app)
@@ -43,33 +42,11 @@ def register_login_loader():
         return User.query.get(int(user_id))
 
 
-def register_csrf_hooks(app):
-    @app.context_processor
-    def inject_csrf_token():
-        def csrf_token():
-            token = session.get("_csrf_token")
-            if not token:
-                token = secrets.token_urlsafe(32)
-                session["_csrf_token"] = token
-            return token
-
-        return {"csrf_token": csrf_token}
-
+def register_request_guards(app):
     @app.before_request
-    def validate_csrf_token():
+    def reject_options_requests():
         if request.method == "OPTIONS":
             abort(405)
-        if app.config.get("WTF_CSRF_ENABLED") is False:
-            return
-        if request.method not in CSRF_PROTECTED_METHODS:
-            return
-        if request.endpoint == "secdebt.api_ingest":
-            return
-
-        expected = session.get("_csrf_token")
-        provided = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
-        if not expected or not secrets.compare_digest(expected, provided or ""):
-            abort(400)
 
 
 def register_security_headers(app):
@@ -115,6 +92,11 @@ def register_error_handlers(app):
 
     @app.errorhandler(400)
     def bad_request_error(error):
+        del error
+        return _error_response("Bad request", 400)
+
+    @app.errorhandler(CSRFError)
+    def csrf_error(error):
         del error
         return _error_response("Bad request", 400)
 

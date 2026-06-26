@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from flask import Blueprint, abort, jsonify, render_template, request
 from flask_login import current_user, login_required
 
-from app import db
+from app import csrf, db
 from app.models.secdebt import SecDebtFinding, SecDebtScanRun
 from app.utils.logger import log_event
 from app.utils.secdebt_ingest import get_dashboard_stats, ingest_reports
@@ -105,6 +105,7 @@ def api_findings():
 
 
 @secdebt_bp.route("/api/ingest", methods=["POST"])
+@csrf.exempt
 def api_ingest():
     if not _check_ingest_token():
         if not (current_user.is_authenticated and current_user.is_admin()):
