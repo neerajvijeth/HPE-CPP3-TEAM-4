@@ -1,4 +1,6 @@
-from flask import Flask
+import secrets
+
+from flask import Flask, abort, request, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
@@ -27,26 +29,57 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # FIX A02: Add security headers to every response
+    @app.context_processor
+    def inject_csrf_token():
+        def csrf_token():
+            token = session.get("_csrf_token")
+            if not token:
+                token = secrets.token_urlsafe(32)
+                session["_csrf_token"] = token
+            return token
+
+        return {"csrf_token": csrf_token}
+
+    @app.before_request
+    def validate_csrf_token():
+        if app.config.get("WTF_CSRF_ENABLED") is False:
+            return
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+        if request.endpoint == "secdebt.api_ingest":
+            return
+
+        expected = session.get("_csrf_token")
+        provided = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+        if not expected or not secrets.compare_digest(expected, provided or ""):
+            abort(400)
+
+    # FIX A02: Add security headers to every response.
     @app.after_request
     def set_security_headers(response):
-        # Prevent clickjacking
         response.headers["X-Frame-Options"] = "DENY"
-        # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
-        # XSS protection for older browsers
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Only send referrer on same origin
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Content Security Policy
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        )
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; "
+            "script-src 'self'; "
+            "style-src 'self' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:;"
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "form-action 'self'; "
+            "base-uri 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none';"
         )
-        # FIX A02: Remove server info header
         response.headers.pop("Server", None)
         return response
 
