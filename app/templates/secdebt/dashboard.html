@@ -74,6 +74,26 @@
     </div>
 </div>
 
+<div class="card formula-card">
+    <div class="card-header">Debt Scoring Formula</div>
+    <div class="formula-body">
+        <div class="formula-block">
+            <code>Debt Score = (Severity x 0.5) + (Age in Days x 0.3) + (Reachability x 0.2)</code>
+            <div class="formula-note">The score is multiplied by an interest rate as findings age.</div>
+            <div class="interest-table">
+                <div class="int-row"><span class="int-badge int-low">x 1.0</span> Age under 7 days</div>
+                <div class="int-row"><span class="int-badge int-med">x 1.5</span> Age 7-30 days</div>
+                <div class="int-row"><span class="int-badge int-high">x 2.0</span> Age over 30 days</div>
+            </div>
+        </div>
+        <div class="formula-block">
+            <div class="formula-note"><strong>Severity scores:</strong> CRITICAL=10, HIGH=7.5, MEDIUM=5, LOW=2.5, INFO=1</div>
+            <div class="formula-note"><strong>Reachability:</strong> app code=1.0, library dependency=0.7, OS package=0.3, test code=0.2</div>
+        </div>
+    </div>
+</div>
+
+
 {% if history|length > 1 %}
 <div class="card mb-24">
     <div class="card-header">
@@ -183,24 +203,6 @@
     </div>
 </div>
 
-<div class="card formula-card">
-    <div class="card-header">Debt Scoring Formula</div>
-    <div class="formula-body">
-        <div class="formula-block">
-            <code>Debt Score = (Severity x 0.5) + (Age in Days x 0.3) + (Reachability x 0.2)</code>
-            <div class="formula-note">The score is multiplied by an interest rate as findings age.</div>
-            <div class="interest-table">
-                <div class="int-row"><span class="int-badge int-low">x 1.0</span> Age under 7 days</div>
-                <div class="int-row"><span class="int-badge int-med">x 1.5</span> Age 7-30 days</div>
-                <div class="int-row"><span class="int-badge int-high">x 2.0</span> Age over 30 days</div>
-            </div>
-        </div>
-        <div class="formula-block">
-            <div class="formula-note"><strong>Severity scores:</strong> CRITICAL=10, HIGH=7.5, MEDIUM=5, LOW=2.5, INFO=1</div>
-            <div class="formula-note"><strong>Reachability:</strong> app code=1.0, library dependency=0.7, OS package=0.3, test code=0.2</div>
-        </div>
-    </div>
-</div>
 
 <script src="{{ url_for('static', filename='js/secdebt.js') }}"></script>
 {% endblock %}
