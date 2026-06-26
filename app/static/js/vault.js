@@ -86,3 +86,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 4000);
     });
 });
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Flash close
+    document.querySelectorAll('.flash-close').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.target.parentElement.remove();
+        });
+    });
+
+    // Toggle main password (login/register)
+    const togglePw = document.getElementById('toggle-password');
+    if (togglePw) {
+        togglePw.addEventListener('click', () => togglePassword('password'));
+    }
+
+    // Toggle vault password (add/edit)
+    const toggleVaultPw = document.getElementById('toggle-vault-password');
+    if (toggleVaultPw) {
+        toggleVaultPw.addEventListener('click', () => togglePassword('vault-password'));
+    }
+
+    // Fetch site info
+    const btnFetchInfo = document.getElementById('btn-fetch-info');
+    if (btnFetchInfo) {
+        btnFetchInfo.addEventListener('click', () => {
+            if (typeof fetchSiteInfo === 'function') {
+                fetchSiteInfo();
+            }
+        });
+    }
+
+    // Delete form confirm
+    document.querySelectorAll('.delete-form').forEach(form => {
+        form.addEventListener('submit', (e) => {
+            if (!confirm('Delete this entry?')) {
+                e.preventDefault();
+            }
+        });
+    });
+
+    // Reveal password
+    document.querySelectorAll('.btn-reveal-pw').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            revealPassword(e.target.dataset.entryId, e.target);
+        });
+    });
+});

@@ -22,7 +22,13 @@ class SecurityHeadersMiddleware:
             if "x-frame-options" not in header_names:
                 headers.append(("X-Frame-Options", "DENY"))
             if "content-security-policy" not in header_names:
-                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none';"))
+                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self';"))
+            if "cross-origin-embedder-policy" not in header_names:
+                headers.append(("Cross-Origin-Embedder-Policy", "require-corp"))
+            if "cross-origin-opener-policy" not in header_names:
+                headers.append(("Cross-Origin-Opener-Policy", "same-origin"))
+            if "cross-origin-resource-policy" not in header_names:
+                headers.append(("Cross-Origin-Resource-Policy", "same-origin"))
             if "x-xss-protection" not in header_names:
                 headers.append(("X-XSS-Protection", "1; mode=block"))
             if "referrer-policy" not in header_names:
