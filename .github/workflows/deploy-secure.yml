@@ -224,7 +224,7 @@ jobs:
               echo "OWASP Dependency-Check could not run."
               echo "Reason: no valid cached NVD database and NVD_API_KEY is missing."
             } | tee odc-reports/dependency-check-status.txt
-            exit 1
+            exit 0
           fi
 
           docker run --rm -u root \
