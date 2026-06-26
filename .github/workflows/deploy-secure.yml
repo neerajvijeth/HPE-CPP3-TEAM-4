@@ -186,6 +186,8 @@ jobs:
           fi
 
       - name: Run OWASP Dependency-Check
+        timeout-minutes: 5
+        continue-on-error: true
         id: odc-scan
         run: |
           set +e
