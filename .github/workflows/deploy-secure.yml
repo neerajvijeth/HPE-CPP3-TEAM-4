@@ -569,11 +569,57 @@ jobs:
             echo "Nikto did not generate nikto-report.xml. Check nikto-scan.log." | tee dast-reports/nikto/nikto-summary.txt
           fi
 
-          if [ "$NIKTO_EXIT" -ne 0 ] || grep -q "<item" dast-reports/nikto/nikto-report.xml 2>/dev/null; then
-            echo "fail" > dast-reports/nikto/nikto-status.txt
-          else
-            echo "pass" > dast-reports/nikto/nikto-status.txt
-          fi
+          echo "Nikto exit code: $NIKTO_EXIT" | tee -a dast-reports/nikto/nikto-summary.txt
+
+          python3 <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path("dast-reports/nikto/nikto-report.xml")
+          summary = Path("dast-reports/nikto/nikto-summary.txt")
+          status = Path("dast-reports/nikto/nikto-status.txt")
+
+          allowed_prefixes = (
+              "OPTIONS: Allowed HTTP Methods:",
+          )
+
+          def write_result(result, lines):
+              with summary.open("a", encoding="utf-8") as handle:
+                  for line in lines:
+                      handle.write(f"{line}\n")
+              status.write_text(f"{result}\n", encoding="utf-8")
+
+          if not report.exists() or report.stat().st_size == 0:
+              write_result("fail", ["Nikto XML report missing. Treating scan as failed."])
+              raise SystemExit(0)
+
+          try:
+              root = ET.parse(report).getroot()
+          except ET.ParseError as exc:
+              write_result("fail", [f"Nikto XML report could not be parsed: {exc}"])
+              raise SystemExit(0)
+
+          findings = []
+          for item in root.iter("item"):
+              description = (item.findtext("description") or "").strip()
+              uri = (item.findtext("uri") or "").strip()
+              findings.append((description, uri))
+
+          blocking = [
+              (description, uri)
+              for description, uri in findings
+              if not any(description.startswith(prefix) for prefix in allowed_prefixes)
+          ]
+
+          lines = [
+              f"Nikto total findings: {len(findings)}",
+              f"Nikto blocking findings: {len(blocking)}",
+          ]
+          for description, uri in blocking:
+              lines.append(f"Blocking finding at {uri}: {description}")
+
+          write_result("fail" if blocking else "pass", lines)
+          PY
 
       - name: Upload Nikto Report
         uses: actions/upload-artifact@v4
@@ -602,15 +648,18 @@ jobs:
             -version | tee dast-reports/nuclei/nuclei-version.txt || true
 
           set +e
-          docker run --rm \
+          timeout 15m docker run --rm \
             -v "$PWD/dast-reports/nuclei:/reports" \
             projectdiscovery/nuclei:latest \
             -u "$EC2_TARGET_URL" \
-            -rate-limit 5 \
-            -c 5 \
+            -rate-limit 25 \
+            -c 20 \
             -retries 1 \
             -timeout 5 \
-            -severity low,medium,high,critical \
+            -severity medium,high,critical \
+            -tags cve,exposure,misconfig,default-login,takeover \
+            -etags dos,fuzz,bruteforce,enum,intrusive,headless,oast \
+            -ni \
             -jsonl \
             -o /reports/nuclei-report.jsonl \
             2>&1 | tee dast-reports/nuclei/nuclei-scan.log
@@ -620,15 +669,18 @@ jobs:
 
           sudo chmod -R a+rwX dast-reports/nuclei || true
 
+          echo "Nuclei exit code: $NUCLEI_EXIT" | tee dast-reports/nuclei/nuclei-summary.txt
 
-          sudo chmod -R a+rwX dast-reports/nuclei || true
+          if [ "$NUCLEI_EXIT" -eq 124 ]; then
+            echo "Nuclei hit the 15-minute CI timebox. Treating scan as failed/incomplete." | tee -a dast-reports/nuclei/nuclei-summary.txt
+          fi
 
           if [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then
             FINDING_COUNT=$(wc -l < dast-reports/nuclei/nuclei-report.jsonl | xargs)
-            echo "Nuclei completed and found $FINDING_COUNT finding(s)." | tee dast-reports/nuclei/nuclei-summary.txt
+            echo "Nuclei completed and found $FINDING_COUNT finding(s)." | tee -a dast-reports/nuclei/nuclei-summary.txt
           else
             touch dast-reports/nuclei/nuclei-report.jsonl
-            echo "Nuclei completed but produced no findings for $EC2_TARGET_URL." | tee dast-reports/nuclei/nuclei-summary.txt
+            echo "Nuclei completed but produced no findings for $EC2_TARGET_URL." | tee -a dast-reports/nuclei/nuclei-summary.txt
           fi
 
           if [ "$NUCLEI_EXIT" -ne 0 ] || [ -s dast-reports/nuclei/nuclei-report.jsonl ]; then

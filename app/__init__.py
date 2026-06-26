@@ -42,6 +42,8 @@ def create_app():
 
     @app.before_request
     def validate_csrf_token():
+        if request.method == "OPTIONS":
+            abort(405)
         if app.config.get("WTF_CSRF_ENABLED") is False:
             return
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
