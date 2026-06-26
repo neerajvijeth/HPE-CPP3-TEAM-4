@@ -148,133 +148,149 @@ jobs:
 
   dependency-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    continue-on-error: true
+    timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Restore NVD Database Cache
-        id: odc-cache
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get week number
+        id: date
+        run: echo "week=$(date +'%Y-%U')" >> $GITHUB_OUTPUT
+
+      # ── Restore the NVD cache built by the refresh workflow ──
+      - name: Restore NVD Cache
+        id: restore-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}
           restore-keys: |
-            ${{ runner.os }}-odc-nvd-
-      - name: Create Directories
+            ${{ runner.os }}-odc-nvd-v2
+
+      - name: Verify cache exists
+        id: cache-check
         run: |
-          mkdir -p odc-reports
-          mkdir -p odc-data
-          chmod 777 odc-reports
-          chmod 777 odc-data
-      - name: Run OWASP Dependency-Check
-        run: |
-          set +e
-
-          if [ -z "${{ secrets.NVD_API_KEY }}" ]; then
-            echo "NVD_API_KEY secret is required for reliable OWASP Dependency-Check runs."
-            exit 1
-          fi
-
-          if [ "${{ steps.odc-cache.outputs.cache-hit }}" = "true" ]; then
-            echo "NVD cache restored. Running Dependency-Check without updating NVD data."
-
-            docker run --rm -u root \
-              -v ${{ github.workspace }}:/src \
-              -v ${{ github.workspace }}/odc-reports:/report \
-              -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
-              owasp/dependency-check:12.1.0 \
-              --project "SecureVault-Secure" \
-              --scan /src \
-              --format ALL \
-              --out /report \
-              --enableExperimental \
-              --noupdate
-
-            status=$?
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-
-            echo "Cached Dependency-Check scan failed with status ${status}. Trying one online update scan."
+          if [ -f odc-data/odc.mv.db ]; then
+            DB_SIZE=$(du -sh odc-data/ | cut -f1)
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "✅ NVD cache found — size: $DB_SIZE"
           else
-            echo "No NVD cache restored. Running one online Dependency-Check update scan."
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "❌ No NVD cache found at all. Run the 'OWASP NVD Cache Refresh' workflow first."
           fi
 
+      - name: Fail fast if no cache available
+        if: steps.cache-check.outputs.found != 'true'
+        run: |
+          echo "## ❌ No NVD Cache Available" >> $GITHUB_STEP_SUMMARY
+          echo "Trigger the **OWASP NVD Cache Refresh** workflow and let it complete before running a scan." >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+      - name: Create report directory
+        run: mkdir -p odc-report
+
+      # ── Scan using the cached DB only — never touches NVD ──
+      - name: Run Dependency-Check scan
+        id: scan
+        run: |
           docker run --rm -u root \
             -v ${{ github.workspace }}:/src \
-            -v ${{ github.workspace }}/odc-reports:/report \
             -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
-            owasp/dependency-check:12.1.0 \
-            --project "SecureVault-Secure" \
+            -v ${{ github.workspace }}/odc-report:/report \
+            owasp/dependency-check:latest \
             --scan /src \
-            --format ALL \
+            --format HTML \
+            --format JSON \
             --out /report \
+            --noupdate \
             --enableExperimental \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }} \
-            --nvdApiDelay 3500 \
-            --nvdMaxRetryCount 10 \
-            --nvdValidForHours 168
+            --exclude "**/migrations/**" \
+            --exclude "**/tests_fixed/**" \
+            --exclude "**/.git/**" \
+            --project "${{ github.repository }}"
+        continue-on-error: true
 
-          status=$?
+      - name: Check report was generated
+        id: report-check
+        run: |
+          if [ -f odc-report/dependency-check-report.json ]; then
+            echo "generated=true" >> $GITHUB_OUTPUT
+          else
+            echo "generated=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No JSON report found — scan may have failed before producing output"
+          fi
 
-          if [ "$status" -eq 0 ]; then
+      # ── Upload the HTML report as a downloadable artifact ──
+      - name: Upload HTML report artifact
+        if: steps.report-check.outputs.generated == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OWASP-Dependency-Check-Report
+          path: odc-report/dependency-check-report.html
+          retention-days: 30
+
+      - name: Upload JSON report artifact
+        if: steps.report-check.outputs.generated == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OWASP-Dependency-Check-JSON
+          path: odc-report/dependency-check-report.json
+          retention-days: 30
+
+      # ── Build a severity-count summary from the JSON report ──
+      - name: Summarize results in Job Summary
+        if: always()
+        run: |
+          if [ "${{ steps.report-check.outputs.generated }}" != "true" ]; then
+            echo "## ❌ Dependency-Check Scan Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No report was produced. Check the scan step logs above." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
-          echo "Dependency-Check failed with status ${status}."
+          REPORT=odc-report/dependency-check-report.json
 
-          if [ ! -f "odc-reports/dependency-check-report.json" ]; then
-            {
-              echo "OWASP Dependency-Check could not generate a report."
-              echo "Reason: NVD cache was missing/invalid or NVD update failed inside the 20-minute job limit."
-              echo "Last exit status: ${status}"
-            } | tee odc-reports/dependency-check-status.txt
-            exit "$status"
+          TOTAL_DEPS=$(jq '.dependencies | length' "$REPORT")
+          VULN_DEPS=$(jq '[.dependencies[] | select(.vulnerabilities != null and (.vulnerabilities | length) > 0)] | length' "$REPORT")
+          TOTAL_VULNS=$(jq '[.dependencies[].vulnerabilities[]?] | length' "$REPORT")
+          CRITICAL=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "critical")] | length' "$REPORT")
+          HIGH=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "high")] | length' "$REPORT")
+          MEDIUM=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "medium")] | length' "$REPORT")
+          LOW=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "low")] | length' "$REPORT")
+
+          echo "## 🔍 OWASP Dependency-Check Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependencies scanned | $TOTAL_DEPS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependencies with vulnerabilities | $VULN_DEPS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total vulnerabilities found | $TOTAL_VULNS |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$VULN_DEPS" -gt 0 ]; then
+            echo "### Top vulnerable dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Dependency | Vulnerabilities |" >> $GITHUB_STEP_SUMMARY
+            echo "|------------|------------------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              [.dependencies[] | select(.vulnerabilities != null and (.vulnerabilities | length) > 0)
+                | {name: .fileName, count: (.vulnerabilities | length)}]
+              | sort_by(-.count) | .[:10]
+              | .[] | "| \(.name) | \(.count) |"
+            ' "$REPORT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          exit "$status"
-      - name: Save NVD Database Cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Generate Dependency-Check Summary
-        if: always()
-        run: |
-          if [ -f "odc-reports/dependency-check-report.json" ]; then
-            TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
-            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
-            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "- Total dependencies scanned: $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "- Vulnerable dependencies found: $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "Report generation failed because the NVD feed was unavailable after retries." >> $GITHUB_STEP_SUMMARY
-            if [ -f "odc-reports/dependency-check-status.txt" ]; then
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              cat odc-reports/dependency-check-status.txt >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-      - name: Upload HTML Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: OWASP-Dependency-Check-Report
-          path: odc-reports/dependency-check-report.html
-      - name: Upload JSON Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: OWASP-Dependency-Check-JSON
-          path: odc-reports/dependency-check-report.json
-      - name: Upload Dependency-Check Status
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: OWASP-Dependency-Check-Status
-          path: odc-reports/dependency-check-status.txt
+          echo "📄 Full HTML report is attached as a workflow artifact (**OWASP-Dependency-Check-Report**)." >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail the job if the scan itself errored
+        if: steps.report-check.outputs.generated != 'true'
+        run: exit 1
 
   sonarcloud:
     runs-on: ubuntu-latest
