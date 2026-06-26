@@ -1,4 +1,38 @@
-from flask_talisman import Talisman
+
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        def custom_start_response(status, headers, exc_info=None):
+            header_names = {h[0].lower() for h in headers}
+            if "x-content-type-options" not in header_names:
+                headers.append(("X-Content-Type-Options", "nosniff"))
+            if "x-frame-options" not in header_names:
+                headers.append(("X-Frame-Options", "SAMEORIGIN"))
+            if "content-security-policy" not in header_names:
+                headers.append(("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'self'; form-action 'self';"))
+            if "cross-origin-embedder-policy" not in header_names:
+                headers.append(("Cross-Origin-Embedder-Policy", "require-corp"))
+            if "cross-origin-opener-policy" not in header_names:
+                headers.append(("Cross-Origin-Opener-Policy", "same-origin"))
+            if "cross-origin-resource-policy" not in header_names:
+                headers.append(("Cross-Origin-Resource-Policy", "same-origin"))
+            if "permissions-policy" not in header_names:
+                headers.append(("Permissions-Policy", "camera=(), microphone=(), geolocation=()"))
+            if "x-xss-protection" not in header_names:
+                headers.append(("X-XSS-Protection", "1; mode=block"))
+            if "referrer-policy" not in header_names:
+                headers.append(("Referrer-Policy", "strict-origin-when-cross-origin"))
+            if "strict-transport-security" not in header_names:
+                headers.append(("Strict-Transport-Security", "max-age=31536000; includeSubDomains"))
+            
+            # Remove Server header to prevent information disclosure
+            headers = [h for h in headers if h[0].lower() != "server"]
+            
+            return start_response(status, headers, exc_info)
+        return self.app(environ, custom_start_response)
+
 from flask import Flask, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -22,21 +56,8 @@ def create_app():
     # FIX A02: Enable CSRF protection on all POST forms
     csrf.init_app(app)
 
-    # FIX A02: Use Flask-Talisman for robust security headers
-    csp = {
-        'default-src': '\'self\'',
-        'script-src': '\'self\'',
-        'style-src': '\'self\'',
-        'font-src': '\'self\'',
-        'img-src': ['\'self\'', 'data:'],
-        'frame-ancestors': '\'self\'',
-        'form-action': '\'self\''
-    }
-    Talisman(app, 
-             content_security_policy=csp, 
-             frame_options='SAMEORIGIN',
-             force_https=False,
-             session_cookie_secure=False)
+    # FIX A02: Add security headers to every response via WSGI middleware
+    app.wsgi_app = SecurityHeadersMiddleware(app.wsgi_app)
 
 
     login_manager.login_view = "auth.login"
