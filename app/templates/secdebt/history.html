@@ -1,24 +1,27 @@
 {% extends "base.html" %}
 
-{% block title %}SecDebt History{% endblock %}
+{% block title %}SecDebt - Scan History{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/secdebt.css') }}">
+{% endblock %}
 
 {% block content %}
-<section class="dashboard">
-    <div class="page-header">
-        <h1>SecDebt Run History</h1>
-        <p class="page-subtitle">Previous report ingestion runs and debt-score changes.</p>
+<div class="secdebt-header">
+    <div>
+        <h1 class="page-title"><span class="page-icon">📋</span> Scan Run History</h1>
+        <p class="page-subtitle">Every report ingestion run and its debt-score result.</p>
     </div>
+    <a href="{{ url_for('secdebt.dashboard') }}" class="btn btn-ghost">Back to Dashboard</a>
+</div>
 
-    <div class="card">
-        <div class="card-header">
-            <h2>Ingest Runs</h2>
-            <a href="{{ url_for('secdebt.dashboard') }}" class="btn btn-secondary">Dashboard</a>
-        </div>
-        {% if runs %}
-        <table class="data-table">
+<div class="card">
+    <div class="table-wrap">
+        <table class="findings-table">
             <thead>
                 <tr>
-                    <th>Run Time</th>
+                    <th>#</th>
+                    <th>Run At UTC</th>
                     <th>Branch</th>
                     <th>Commit</th>
                     <th>Tools</th>
@@ -26,26 +29,38 @@
                     <th>New</th>
                     <th>Resolved</th>
                     <th>Score</th>
+                    <th>Triggered By</th>
                 </tr>
             </thead>
             <tbody>
                 {% for run in runs %}
                 <tr>
-                    <td>{{ run.run_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
-                    <td>{{ run.branch or "-" }}</td>
-                    <td>{{ (run.commit_sha or "-")[:8] }}</td>
-                    <td>{{ run.tools_ingested or "-" }}</td>
-                    <td>{{ run.total_findings }}</td>
-                    <td>{{ run.new_findings }}</td>
-                    <td>{{ run.resolved_findings }}</td>
-                    <td><strong>{{ "%.1f"|format(run.total_debt_score) }}</strong></td>
+                    <td class="mono-small">{{ run.id }}</td>
+                    <td class="mono-small">{{ run.run_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td><code class="inline-code">{{ run.branch or '-' }}</code></td>
+                    <td class="mono-small">{{ run.commit_sha[:8] if run.commit_sha else '-' }}</td>
+                    <td>
+                        {% for tool in (run.tools_ingested or '').split(',') %}
+                            {% if tool %}<span class="tool-tag">{{ tool }}</span>{% endif %}
+                        {% endfor %}
+                    </td>
+                    <td><strong>{{ run.total_findings }}</strong></td>
+                    <td class="text-accent">+{{ run.new_findings }}</td>
+                    <td class="text-green">-{{ run.resolved_findings }}</td>
+                    <td>
+                        <span class="score-badge {% if run.total_debt_score >= 50 %}score-critical{% elif run.total_debt_score >= 20 %}score-high{% elif run.total_debt_score >= 10 %}score-medium{% else %}score-low{% endif %}">
+                            {{ "%.1f"|format(run.total_debt_score) }}
+                        </span>
+                    </td>
+                    <td class="mono-small">{{ run.triggered_by or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" class="empty-state">No scan runs yet.</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        {% else %}
-        <p>No SecDebt ingestion runs yet.</p>
-        {% endif %}
     </div>
-</section>
+</div>
 {% endblock %}
