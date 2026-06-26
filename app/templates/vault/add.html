@@ -13,6 +13,7 @@
 
     <div class="card">
         <form method="POST" action="{{ url_for('vault.add') }}" class="form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label class="form-label">Site Name <span class="required">*</span></label>
                 <input type="text" name="site_name" class="form-input" placeholder="e.g. Gmail, GitHub" required>

@@ -25,6 +25,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from app import db
+from app import csrf
 from app.models.secdebt import SecDebtFinding, SecDebtScanRun
 from app.utils.secdebt_ingest import ingest_reports, get_dashboard_stats
 from app.utils.logger import log_event
@@ -164,6 +165,7 @@ def api_findings():
 # ---------------------------------------------------------------------------
 
 @secdebt_bp.route("/api/ingest", methods=["POST"])
+@csrf.exempt
 def api_ingest():
     """
     Accepts JSON body:

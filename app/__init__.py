@@ -1,12 +1,14 @@
-from flask import Flask
+from flask import Flask, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
+from flask_wtf.csrf import CSRFProtect
 from app.config import Config
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 migrate = Migrate()
+csrf = CSRFProtect()
 
 
 def create_app():
@@ -17,6 +19,8 @@ def create_app():
     from app.models.secdebt import SecDebtFinding, SecDebtScanRun
     login_manager.init_app(app)
     migrate.init_app(app, db)
+    # FIX A02: Enable CSRF protection on all POST forms
+    csrf.init_app(app)
 
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
@@ -73,6 +77,20 @@ def create_app():
     @app.errorhandler(403)
     def forbidden_error(error):
         return {"error": "Forbidden"}, 403
+
+    @app.errorhandler(400)
+    def bad_request_error(error):
+        return {"error": "Bad request"}, 400
+
+    @app.errorhandler(405)
+    def method_not_allowed_error(error):
+        return {"error": "Method not allowed"}, 405
+
+    # Catch-all: prevent Gunicorn/Werkzeug stack traces from leaking
+    @app.errorhandler(Exception)
+    def unhandled_exception(error):
+        db.session.rollback()
+        return {"error": "Internal server error"}, 500
 
     from app.routes.auth import auth_bp
     from app.routes.vault import vault_bp

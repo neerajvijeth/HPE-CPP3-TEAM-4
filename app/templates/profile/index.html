@@ -23,6 +23,7 @@
     <div class="card mb-20">
         <h2 class="card-title">Update Profile</h2>
         <form method="POST" action="{{ url_for('profile.update') }}" class="form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label class="form-label">Email</label>
                 <input type="email" name="email" class="form-input" value="{{ current_user.email }}">
@@ -49,6 +50,7 @@
     <div class="card">
         <h2 class="card-title">Profile Picture</h2>
         <form method="POST" action="{{ url_for('profile.upload') }}" enctype="multipart/form-data" class="form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label class="form-label">Upload Image</label>
                 <input type="file" name="profile_picture" class="form-input" accept=".png,.jpg,.jpeg,.gif,.webp">

@@ -5,6 +5,12 @@ function togglePassword(inputId) {
     }
 }
 
+// Helper: get CSRF token from meta tag
+function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
 // A01: No ownership check server-side — any user can reveal any password by ID
 async function revealPassword(entryId, btn) {
     const pwSpan = document.getElementById(`pw-${entryId}`);
@@ -41,7 +47,12 @@ async function fetchSiteInfo() {
     formData.append('url', urlInput.value.trim());
 
     try {
-        const response = await fetch('/fetcher/fetch-site', { method: 'POST', body: formData });
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        const response = await fetch('/fetcher/fetch-site', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRFToken': csrfToken }
+        });
         const data = await response.json();
         if (preview) {
             preview.classList.remove('hidden');

@@ -137,9 +137,11 @@
         if (!id) return;
         if (!confirm("Mark finding #" + id + " as resolved?")) return;
 
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
         fetch("/secdebt/api/resolve/" + id, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
         })
           .then(function (res) {
             if (!res.ok) throw new Error("HTTP " + res.status);
@@ -179,9 +181,11 @@
       btn.disabled = true;
       btn.textContent = "⏳ Scanning…";
 
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
       fetch("/secdebt/api/ingest", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
         body: JSON.stringify({ triggered_by: "manual-dashboard" }),
       })
         .then(function (res) {
