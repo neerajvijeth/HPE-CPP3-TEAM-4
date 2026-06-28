@@ -262,7 +262,7 @@ jobs:
           if [ "${{ steps.cache-check.outputs.found }}" = "true" ]; then
             docker run --rm -u root \
               -v ${{ github.workspace }}:/src \
-              -v ${{ github.workspace }}/odc-reports:/report \
+              -v ${{ github.workspace }}/odc-report:/report \
               -v ${{ github.workspace }}/odc-data:/usr/share/dependency-check/data \
               owasp/dependency-check:12.1.0 \
               --project "HPE-CPP3-TEAM-4-SecureVault" \
