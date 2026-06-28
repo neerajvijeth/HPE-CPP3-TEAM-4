@@ -458,7 +458,7 @@ jobs:
           echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check'
     needs:
       - pytest
       - pylint
@@ -487,7 +487,7 @@ jobs:
 
   deploy-ec2-secure:
     needs: docker-build-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to Secure EC2
@@ -592,7 +592,7 @@ jobs:
 
   secdebt-ingest:
     needs: deploy-ec2-secure
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     continue-on-error: true
   
@@ -635,7 +635,7 @@ jobs:
     needs:
       - deploy-ec2-secure
       - secdebt-ingest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Normalize ZAP target URL
@@ -903,7 +903,7 @@ jobs:
       - nikto-dast
       - nuclei-dast
       - zap-dast
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Download DAST artifacts
