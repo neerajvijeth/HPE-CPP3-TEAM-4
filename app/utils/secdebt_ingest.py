@@ -8,6 +8,7 @@ from app.utils.secdebt_parsers import (
     parse_bandit,
     parse_owasp,
     parse_pylint,
+    parse_pytest,
     parse_sonar,
     parse_trivy,
 )
@@ -18,6 +19,7 @@ DEFAULT_REPORT_DIR = Path("/reports")
 REPORT_FILES = {
     "bandit": Path("bandit-report.txt"),
     "pylint": Path("pylint-report.txt"),
+    "pytest": Path("pytest-report.txt"),
     "trivy": Path("trivy-results.txt"),
     "owasp": Path("odc-reports") / "dependency-check-report.json",
     "sonar": Path("sonar-issues.json"),
@@ -26,6 +28,7 @@ REPORT_FILES = {
 PARSERS = {
     "bandit": parse_bandit,
     "pylint": parse_pylint,
+    "pytest": parse_pytest,
     "trivy": parse_trivy,
     "owasp": parse_owasp,
     "sonar": parse_sonar,
