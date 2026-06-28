@@ -273,7 +273,8 @@ jobs:
               --exclude "**/migrations/**" \
               --exclude "**/tests_fixed/**" \
               --exclude "**/.git/**" \
-              --noupdate
+              --noupdate \
+              --disableOssIndex
 
             status=$?
             if [ "$status" -eq 0 ]; then
@@ -302,6 +303,7 @@ jobs:
             --exclude "**/migrations/**" \
             --exclude "**/tests_fixed/**" \
             --exclude "**/.git/**" \
+            --disableOssIndex \
             --project "${{ github.repository }}"
         continue-on-error: true
 
