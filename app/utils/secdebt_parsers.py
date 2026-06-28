@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -243,4 +244,46 @@ def parse_sonar(report_path):
             "line_number": issue.get("line"),
             "raw_snippet": json.dumps(issue)[:400],
         })
+    return findings
+
+
+def parse_pytest(report_path):
+    findings = []
+
+    if not os.path.exists(report_path):
+        return findings
+
+    failed_pattern = re.compile(
+        r"^(?P<test>.+?)\s+FAILED(?:\s+\[[^\]]+\])?$"
+    )
+
+    with open(report_path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            line = line.strip()
+
+            match = failed_pattern.match(line)
+            if not match:
+                continue
+
+            test_name = match.group("test")
+
+            if "::" in test_name:
+                file_path, _, test_case = test_name.partition("::")
+            else:
+                file_path = ""
+                test_case = test_name
+
+            findings.append({
+                "tool": "pytest",
+                "vuln_id": f"PYTEST::{test_case}",
+                "title": f"Failed Test: {test_case}",
+                "description": f"Pytest test '{test_case}' failed.",
+                "severity": "MEDIUM",
+                "reachability": estimate_reachability("pytest", file_path),
+                "file_path": file_path,
+                "line_number": None,
+                "raw_snippet": line[:400],
+            })
+
+    logger.info("Pytest parsed %d failed tests", len(findings))
     return findings
