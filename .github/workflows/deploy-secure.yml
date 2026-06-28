@@ -5,10 +5,12 @@ on:
     branches:
       - hps-secure
       - final_refinements
+      - fix/dep-check
   pull_request:
     branches:
       - hps-secure
       - final_refinements
+      - fix/dep-check
   workflow_dispatch:
 
 jobs:
@@ -198,7 +200,7 @@ jobs:
         if: always()
         with:
           name: trivy-results
-          path: bandit-results.txt
+          path: trivy-results.txt
   
   
       
@@ -221,21 +223,22 @@ jobs:
           path: ${{ github.workspace }}/odc-data
           key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}
           restore-keys: |
-            ${{ runner.os }}-odc-nvd-v2-
+            ${{ runner.os }}-odc-nvd-v2
 
       - name: Create Directories
         run: |
           mkdir -p odc-reports
           mkdir -p odc-data
-          chmod 777 odc-reports
-          chmod 777 odc-data
+          # chmod 777 odc-reports
+          # chmod 777 odc-data
 
       - name: Check NVD Cache
         id: odc-cache-check
         run: |
           if [ -f odc-data/odc.mv.db ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "NVD cache found: $(du -sh odc-data | cut -f1)"
+            DB_SIZE=$(du -sh odc-data | cut -f1)
+            echo "✅ NVD cache found — size: $DB_SIZE"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "No NVD cache found. Dependency-Check will try one online update scan."
@@ -306,6 +309,10 @@ jobs:
           status=$?
 
           if [ "$status" -eq 0 ]; then
+            if [ ! -f "odc-reports/dependency-check-report.json" ]; then
+              echo "Dependency-Check finished but JSON report was not generated."
+              exit 0
+            fi
             exit 0
           fi
 
@@ -327,20 +334,56 @@ jobs:
         if: always() && hashFiles('odc-data/odc.mv.db') != ''
         with:
           path: ${{ github.workspace }}/odc-data
-          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}-${{ github.run_id }}-${{ github.run_attempt }}
-
+          key: ${{ runner.os }}-odc-nvd-v2-${{ steps.date.outputs.week }}
+          
       - name: Generate Dependency-Check Summary
         if: always()
         run: |
           if [ -f "odc-reports/dependency-check-report.json" ]; then
-            TOTAL_DEPS=$(jq '.dependencies | length' odc-reports/dependency-check-report.json)
-            VULN_DEPS=$(jq '.dependencies | map(select(has("vulnerabilities"))) | length' odc-reports/dependency-check-report.json)
+            REPORT=odc-reports/dependency-check-report.json
+      
+            TOTAL_DEPS=$(jq '.dependencies | length' "$REPORT")
+            VULN_DEPS=$(jq '[.dependencies[] | select(.vulnerabilities != null and (.vulnerabilities | length) > 0)] | length' "$REPORT")
+            TOTAL_VULNS=$(jq '[.dependencies[].vulnerabilities[]?] | length' "$REPORT")
+            CRITICAL=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "critical")] | length' "$REPORT")
+            HIGH=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "high")] | length' "$REPORT")
+            MEDIUM=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "medium")] | length' "$REPORT")
+            LOW=$(jq '[.dependencies[].vulnerabilities[]? | select((.severity // .cvssv3.baseSeverity // "") | ascii_downcase == "low")] | length' "$REPORT")
+      
             echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "- Total dependencies scanned: $TOTAL_DEPS" >> $GITHUB_STEP_SUMMARY
-            echo "- Vulnerable dependencies found: $VULN_DEPS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|------:|" >> $GITHUB_STEP_SUMMARY
+            echo "| Dependencies scanned | $TOTAL_DEPS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Vulnerable dependencies | $VULN_DEPS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Total vulnerabilities | $TOTAL_VULNS |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+      
+            if [ "$VULN_DEPS" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Top Vulnerable Dependencies" >> $GITHUB_STEP_SUMMARY
+              echo "| Dependency | Vulnerabilities |" >> $GITHUB_STEP_SUMMARY
+              echo "|------------|----------------:|" >> $GITHUB_STEP_SUMMARY
+      
+              jq -r '
+                [.dependencies[]
+                  | select(.vulnerabilities != null and (.vulnerabilities | length) > 0)
+                  | {name: .fileName, count: (.vulnerabilities | length)}]
+                | sort_by(-.count)
+                | .[:10]
+                | .[]
+                | "| \(.name) | \(.count) |"
+              ' "$REPORT" >> $GITHUB_STEP_SUMMARY
+            fi
+      
           else
             echo "## OWASP Dependency-Check Results" >> $GITHUB_STEP_SUMMARY
-            echo "Report generation failed because the NVD feed was unavailable after retries." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Report generation failed." >> $GITHUB_STEP_SUMMARY
+      
             if [ -f "odc-reports/dependency-check-status.txt" ]; then
               echo '```' >> $GITHUB_STEP_SUMMARY
               cat odc-reports/dependency-check-status.txt >> $GITHUB_STEP_SUMMARY
@@ -352,11 +395,11 @@ jobs:
         if: always()
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.EC2_HOST_SECURE }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "odc-reports/dependency-check-report.json"
-          target: "/home/ubuntu/secdebt-reports/"
+            host: ${{ secrets.EC2_HOST_SECURE }}
+            username: ${{ secrets.EC2_USER }}
+            key: ${{ secrets.EC2_SSH_KEY }}
+            source: "odc-reports/dependency-check-report.json"
+            target: "/home/ubuntu/secdebt-reports/"
         continue-on-error: true
       - name: Upload HTML Report
         uses: actions/upload-artifact@v4
@@ -377,6 +420,8 @@ jobs:
           name: OWASP-Dependency-Check-Status
           path: odc-reports/dependency-check-status.txt
 
+      
+            
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
@@ -413,7 +458,7 @@ jobs:
           echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Final_refinements'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
     needs:
       - pytest
       - pylint
@@ -442,7 +487,7 @@ jobs:
 
   deploy-ec2-secure:
     needs: docker-build-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Final_refinements'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to Secure EC2
@@ -547,7 +592,7 @@ jobs:
 
   secdebt-ingest:
     needs: deploy-ec2-secure
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Final_refinements'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     continue-on-error: true
   
@@ -590,7 +635,7 @@ jobs:
     needs:
       - deploy-ec2-secure
       - secdebt-ingest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Final_refinements'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Normalize ZAP target URL
@@ -858,7 +903,7 @@ jobs:
       - nikto-dast
       - nuclei-dast
       - zap-dast
-    if: github.event_name == 'push' && github.ref == 'refs/heads/Final_refinements'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/dep-check'
     runs-on: ubuntu-latest
     steps:
       - name: Download DAST artifacts
