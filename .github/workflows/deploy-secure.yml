@@ -430,7 +430,7 @@ jobs:
           echo "Detailed analysis is available in SonarCloud for this run." >> $GITHUB_STEP_SUMMARY
 
   docker-build-push:
-    if: github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check' || github.ref == 'refs/heads/final_refinements' 
     needs:
       - pytest
       - pylint
@@ -459,7 +459,7 @@ jobs:
 
   deploy-ec2-secure:
     needs: docker-build-push
-    if: github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check' || github.ref == 'refs/heads/final_refinements'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to Secure EC2
@@ -564,7 +564,7 @@ jobs:
 
   secdebt-ingest:
     needs: deploy-ec2-secure
-    if: github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check' || github.ref == 'refs/heads/final_refinements'
     runs-on: ubuntu-latest
     continue-on-error: true
   
@@ -607,7 +607,7 @@ jobs:
     needs:
       - deploy-ec2-secure
       - secdebt-ingest
-    if: github.ref == 'refs/heads/fix/dep-check'
+    if: github.ref == 'refs/heads/fix/dep-check' || github.ref == 'refs/heads/final_refinements'
     runs-on: ubuntu-latest
     steps:
       - name: Normalize ZAP target URL
