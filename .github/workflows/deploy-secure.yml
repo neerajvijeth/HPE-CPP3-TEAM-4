@@ -436,7 +436,7 @@ jobs:
       - pylint
       - bandit
       - trivy
-      # - dependency-check
+      - dependency-check
       - sonarcloud
     runs-on: ubuntu-latest
     steps:
