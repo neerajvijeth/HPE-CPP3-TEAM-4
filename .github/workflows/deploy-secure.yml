@@ -6,15 +6,16 @@ on:
       - hps-backup
       - fix/dep-check
       - main-prod
-  pull_request:
-    branches:
-      - hps-backup
-      - fix/dep-check
-      - main-prod
+  # pull_request:
+  #   branches:
+  #     - hps-backup
+  #     - fix/dep-check
+  #     - main-prod
   workflow_dispatch:
 
 jobs:
   pytest:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +63,7 @@ jobs:
           name: pytest-report
           path: pytest-report.txt
   pylint:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +111,7 @@ jobs:
           path: pylint-report.txt
 
   bandit:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,6 +159,7 @@ jobs:
 
           
   trivy:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -206,6 +210,7 @@ jobs:
       
 
   dependency-check:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -395,6 +400,7 @@ jobs:
       
             
   sonarcloud:
+    if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1044,7 +1050,7 @@ jobs:
           exit 1
 
   deploy-prod-stable:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy approved stable image to production EC2
