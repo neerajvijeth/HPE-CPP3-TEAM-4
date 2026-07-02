@@ -15,3 +15,5 @@ class AuditLog(db.Model):
 
     def __repr__(self):
         return f"<AuditLog {self.action} at {self.timestamp}>"
+
+# Adding comment for demo
