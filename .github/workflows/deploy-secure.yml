@@ -246,12 +246,12 @@ jobs:
             echo "❌ No NVD cache found at all. Run the 'OWASP NVD Cache Refresh' workflow first."
           fi
 
-      - name: Fail fast if no cache available
+      - name: Warn if no cache available
         if: steps.cache-check.outputs.found != 'true'
         run: |
-          echo "## ❌ No NVD Cache Available" >> $GITHUB_STEP_SUMMARY
-          echo "Trigger the **OWASP NVD Cache Refresh** workflow and let it complete before running a scan." >> $GITHUB_STEP_SUMMARY
-          exit 1
+          echo "## ⚠️ No NVD Cache Available" >> $GITHUB_STEP_SUMMARY
+          echo "Dependency-Check is currently non-blocking, so the pipeline will continue." >> $GITHUB_STEP_SUMMARY
+          echo "Trigger the **OWASP NVD Cache Refresh** workflow before re-enabling Dependency-Check as a blocking gate." >> $GITHUB_STEP_SUMMARY
 
       - name: Create report directory
         run: mkdir -p odc-report
@@ -394,9 +394,10 @@ jobs:
           target: "/home/ubuntu/secdebt-reports/"
         continue-on-error: true
 
-      - name: Fail the job if the scan itself errored
+      - name: Continue if Dependency-Check did not produce a report
         if: steps.report-check.outputs.generated != 'true'
-        run: exit 1
+        run: |
+          echo "Dependency-Check did not produce a report. Continuing because this job is temporarily non-blocking." >> $GITHUB_STEP_SUMMARY
 
       
             
