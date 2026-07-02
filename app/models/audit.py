@@ -17,3 +17,4 @@ class AuditLog(db.Model):
         return f"<AuditLog {self.action} at {self.timestamp}>"
 
 # Adding comment for demo
+# adding another comment for demo
