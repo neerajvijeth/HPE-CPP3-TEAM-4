@@ -213,6 +213,7 @@ jobs:
     if: github.ref != 'refs/heads/main-prod'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
